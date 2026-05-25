@@ -1,0 +1,16 @@
+{
+  "name": "guardian-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "pino": "^9.5.0",
+    "pino-pretty": "^13.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
