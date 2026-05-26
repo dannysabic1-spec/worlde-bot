@@ -1,1063 +1,1047 @@
-var __defProp = Object.defineProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
+// ╔══════════════════════════════════════════════════════════════╗
+// ║          GUARDIAN BOT — GIANNI Edition                      ║
+// ║  Sve komande na . prefix  •  NSFW  •  Tinder  •  Full Mod  ║
+// ╚══════════════════════════════════════════════════════════════╝
 
-// src/bot/index.ts
 import {
-  Client,
-  GatewayIntentBits,
-  REST,
-  Routes,
-  ActivityType
+  Client, GatewayIntentBits, REST, Routes, ActivityType,
+  EmbedBuilder, SlashCommandBuilder, PermissionFlagsBits,
+  ChannelType, GuildMember, GuildScheduledEventStatus
 } from "discord.js";
-
-// src/lib/logger.ts
 import pino from "pino";
-var isProduction = process.env.NODE_ENV === "production";
-var logger = pino({
+import { existsSync, unlinkSync } from "fs";
+
+// ─── Startup cleanup ─────────────────────────────────────────────────────────
+for (const f of ["package-lock.json", "yarn.lock", ".DS_Store"]) {
+  if (existsSync(f)) { try { unlinkSync(f); } catch {} }
+}
+
+// ─── Logger ──────────────────────────────────────────────────────────────────
+const isProd = process.env.NODE_ENV === "production";
+const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
-  ...isProduction ? {} : {
-    transport: {
-      target: "pino-pretty",
-      options: { colorize: true }
-    }
-  }
+  ...(isProd ? {} : { transport: { target: "pino-pretty", options: { colorize: true } } })
 });
 
-// src/bot/handlers/antiRaid.ts
-import {
-  PermissionFlagsBits,
-  ChannelType
-} from "discord.js";
+// ─── Constants ───────────────────────────────────────────────────────────────
+const OWNER_ID = "829552737322270731";
+const FOOTER   = "🛡️ GIANNI Bot";
+const PREFIX   = ".";
 
-// src/bot/utils/embeds.ts
-import {
-  EmbedBuilder,
-  GuildMember
-} from "discord.js";
-
-// src/bot/utils/colors.ts
-var BotColors = {
-  BLURPLE: 5793266,
-  GREEN: 5763719,
-  YELLOW: 16705372,
-  RED: 15548997,
-  BLUE: 3447003,
-  PINK: 16741370,
-  ORANGE: 16739125,
-  DARK: 3092790,
-  GOLD: 15844367,
-  CYAN: 54015
+const C = {
+  GREEN:  0x57F287, RED:    0xED4245, BLUE:   0x5865F2, YELLOW: 0xFEE75C,
+  ORANGE: 0xFF7700, PINK:   0xFF73FA, CYAN:   0x00D4FF, GOLD:   0xF1C40F,
+  DARK:   0x2F3136, PURPLE: 0x9B59B6, TEAL:   0x1ABC9C, WHITE:  0xFFFFFF
 };
 
-// src/bot/utils/embeds.ts
-var BOT_FOOTER = "\u{1F6E1}\uFE0F Guardian Bot \u2022 Protection System";
-function successEmbed(title, description) {
-  return new EmbedBuilder().setColor(BotColors.GREEN).setTitle(`\u2705 ${title}`).setDescription(description).setTimestamp().setFooter({ text: BOT_FOOTER });
-}
-function errorEmbed(title, description) {
-  return new EmbedBuilder().setColor(BotColors.RED).setTitle(`\u274C ${title}`).setDescription(description).setTimestamp().setFooter({ text: BOT_FOOTER });
-}
-function infoEmbed(title, description) {
-  return new EmbedBuilder().setColor(BotColors.BLURPLE).setTitle(`\u2139\uFE0F ${title}`).setDescription(description).setTimestamp().setFooter({ text: BOT_FOOTER });
-}
-function raidAlertEmbed(guild, joinCount) {
-  return new EmbedBuilder().setColor(BotColors.RED).setTitle("\u{1F6A8} RAID DETECTED \u2014 SERVER LOCKDOWN ACTIVATED").setDescription(
-    `> **${joinCount}** korisnika je u\u0161lo za manje od **10 sekundi**!
-> Server je automatski zaklju\u010Dan na **5 minuta**.`
-  ).addFields(
-    { name: "\u{1F3F0} Server", value: guild.name, inline: true },
-    { name: "\u{1F465} Mass Join", value: `${joinCount} korisnika`, inline: true },
-    {
-      name: "\u23F1\uFE0F Lockdown trajanje",
-      value: "5 minuta (auto-unlock)",
-      inline: true
-    }
-  ).setThumbnail(guild.iconURL() ?? null).setTimestamp().setFooter({ text: "\u{1F6E1}\uFE0F Anti-Raid System \u2022 Guardian Bot" });
-}
-function raidUnlockEmbed(guild) {
-  return new EmbedBuilder().setColor(BotColors.GREEN).setTitle("\u2705 Lockdown zavr\u0161en \u2014 Server je ponovo otvor\u0435\u043D").setDescription(
-    `> Server **${guild.name}** je automatski otklju\u010Dan nakon 5 minuta.
-> Raid za\u0161tita ostaje aktivna.`
-  ).setTimestamp().setFooter({ text: "\u{1F6E1}\uFE0F Anti-Raid System \u2022 Guardian Bot" });
-}
-function inviteDeleteEmbed(member, channelName) {
-  const tag = member instanceof GuildMember ? member.user.tag : member.tag;
-  const avatar = member instanceof GuildMember ? member.user.displayAvatarURL() : member.displayAvatarURL();
-  return new EmbedBuilder().setColor(BotColors.ORANGE).setTitle("\u{1F517} Invite Link Blokiran").setDescription(
-    `> Korisnik **${tag}** je poku\u0161ao da po\u0161alje invite link u kanalu **#${channelName}**.
-> Poruka je automatski obrisana.`
-  ).setThumbnail(avatar).setTimestamp().setFooter({ text: "\u{1F6E1}\uFE0F Anti-Invite System \u2022 Guardian Bot" });
-}
-function giveawayStartEmbed(prize, winners, endTime, hostedBy) {
-  const timestamp = Math.floor(endTime.getTime() / 1e3);
-  return new EmbedBuilder().setColor(BotColors.PINK).setTitle("\u{1F389} GIVEAWAY \u{1F389}").setDescription(
-    `## ${prize}
+// ─── Embed helpers ────────────────────────────────────────────────────────────
+const mkOk   = (t, d) => new EmbedBuilder().setColor(C.GREEN) .setTitle(`✅ ${t}`).setDescription(d).setTimestamp().setFooter({ text: FOOTER });
+const mkErr  = (t, d) => new EmbedBuilder().setColor(C.RED)   .setTitle(`❌ ${t}`).setDescription(d).setTimestamp().setFooter({ text: FOOTER });
+const mkInfo = (t, d) => new EmbedBuilder().setColor(C.BLUE)  .setTitle(`ℹ️ ${t}`).setDescription(d).setTimestamp().setFooter({ text: FOOTER });
+const mkWarn = (t, d) => new EmbedBuilder().setColor(C.YELLOW).setTitle(`⚠️ ${t}`).setDescription(d).setTimestamp().setFooter({ text: FOOTER });
 
-> Reaguj sa \u{1F389} da u\u010Destvuje\u0161!
-
-\u23F0 **Zavr\u0161ava se:** <t:${timestamp}:R> (<t:${timestamp}:f>)
-\u{1F3C6} **Broj pobednika:** ${winners}
-\u{1F38A} **Organizuje:** ${hostedBy}`
-  ).setThumbnail("https://cdn.discordapp.com/emojis/738049236830036000.png").setTimestamp(endTime).setFooter({ text: `\u{1F381} Zavr\u0161ava se` });
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function fmt(t, from, to) {
+  return t.replace("{from}", `**${from.globalName ?? from.username}**`)
+          .replace("{to}",   to ? `**${to.globalName ?? to.username}**` : "**???**");
 }
-function giveawayEndEmbed(prize, winners) {
-  const winnersText = winners.length > 0 ? winners.map((w) => `<@${w}>`).join(", ") : "Nema pobednika (niko nije reagovao)";
-  return new EmbedBuilder().setColor(BotColors.GOLD).setTitle("\u{1F3C6} GIVEAWAY ZAVR\u0160EN \u{1F3C6}").setDescription(
-    `## ${prize}
+function isOwner(userId)   { return userId === OWNER_ID; }
+function isAdmin(member)   { return member?.permissions?.has(PermissionFlagsBits.Administrator) ?? false; }
+function isMod(member)     { return member?.permissions?.has(PermissionFlagsBits.ModerateMembers) ?? false; }
+function isNsfw(channel)   { return channel?.nsfw === true; }
 
-\u{1F389} **Pobednik(ci):** ${winnersText}
-
-*\u010Cestitamo svim pobednicima!*`
-  ).setTimestamp().setFooter({ text: "\u{1F381} Guardian Bot \u2022 Giveaway System" });
+// ─── GIF Fetcher ─────────────────────────────────────────────────────────────
+async function fetchGif(action) {
+  try {
+    const res  = await fetch(`https://nekos.best/api/v2/${action}`);
+    const data = await res.json();
+    return data.results?.[0]?.url ?? null;
+  } catch { return null; }
 }
-function giveawayRerollEmbed(prize, newWinners) {
-  const winnersText = newWinners.length > 0 ? newWinners.map((w) => `<@${w}>`).join(", ") : "Nema pobednika";
-  return new EmbedBuilder().setColor(BotColors.CYAN).setTitle("\u{1F504} REROLL \u2014 Novi pobednici!").setDescription(
-    `## ${prize}
 
-\u{1F389} **Novi pobednik(ci):** ${winnersText}
+const GIF_SFW = {
+  hug: "hug", kiss: "kiss", pat: "pat", slap: "slap", poke: "poke",
+  bite: "bite", cuddle: "cuddle", blush: "blush", wave: "wave",
+  highfive: "handshake", feed: "feed", stare: "stare", cry: "cry",
+  dance: "dance", smile: "smile", lick: "lick", happy: "happy",
+  nod: "nod", nope: "nope", sleep: "sleep", wink: "wink",
+  thumbsup: "thumbsup", yawn: "yawn", laugh: "laugh", shrug: "shrug"
+};
 
-*Novi pobednici su odabrani!*`
-  ).setTimestamp().setFooter({ text: "\u{1F381} Guardian Bot \u2022 Giveaway Reroll" });
-}
-function eventsEmbed(guild, events) {
-  const embed = new EmbedBuilder().setColor(BotColors.BLURPLE).setTitle(`\u{1F4C5} Predstoje\u0107i doga\u0111aji \u2014 ${guild.name}`).setThumbnail(guild.iconURL() ?? null).setTimestamp().setFooter({ text: "\u{1F4C5} Guardian Bot \u2022 Events System" });
-  if (events.length === 0) {
-    embed.setDescription(
-      "> Trenutno nema zakazanih doga\u0111aja na ovom serveru."
-    );
-    return embed;
+const GIF_NSFW = {
+  fuck:   "blowjob",
+  daddy:  "ero_neko",
+  mommy:  "ero_yuri",
+  nsfw:   "blowjob"
+};
+
+// ─── Permission guard (message commands) ─────────────────────────────────────
+async function requireOwner(msg) {
+  if (!isOwner(msg.author.id)) {
+    await msg.reply({ embeds: [mkErr("Zabranjen pristup", "Ova komanda je dostupna samo vlasniku bota! 🔒")] });
+    return false;
   }
-  embed.setDescription(
-    `> Prona\u0111eno **${events.length}** predstoje\u0107i(h) doga\u0111aja na serveru **${guild.name}**
-\u200B`
-  );
-  for (const event of events.slice(0, 10)) {
-    const startTs = Math.floor(event.startTime.getTime() / 1e3);
-    const endTs = event.endTime ? Math.floor(event.endTime.getTime() / 1e3) : null;
-    const locationStr = event.location ? `\u{1F4CD} ${event.location}` : "\u{1F4CD} Discord";
-    const endStr = endTs ? `
-\u23F0 Zavr\u0161ava se: <t:${endTs}:R>` : "";
-    const countStr = event.userCount != null ? `
-\u{1F465} Zainteresovanih: **${event.userCount}**` : "";
-    embed.addFields({
-      name: `\u{1F3AA} ${event.name}`,
-      value: `${event.description ? `> ${event.description.slice(0, 80)}${event.description.length > 80 ? "..." : ""}
-` : ""}\u{1F5D3}\uFE0F Po\u010Dinje: <t:${startTs}:F>` + endStr + `
-${locationStr}` + countStr,
-      inline: false
-    });
+  return true;
+}
+async function requireMod(msg) {
+  if (!isOwner(msg.author.id) && !isMod(msg.member) && !isAdmin(msg.member)) {
+    await msg.reply({ embeds: [mkErr("Zabranjen pristup", "Ova komanda je dostupna samo moderatorima! 🔒")] });
+    return false;
   }
-  return embed;
+  return true;
+}
+async function requireNsfw(msg) {
+  if (!isNsfw(msg.channel)) {
+    await msg.reply({ embeds: [mkErr("NSFW kanal potreban", "Ova komanda se može koristiti samo u 🔞 **NSFW** kanalima!")] });
+    return false;
+  }
+  return true;
 }
 
-// src/bot/handlers/antiRaid.ts
-var JOIN_THRESHOLD = 5;
-var JOIN_WINDOW_MS = 1e4;
-var LOCKDOWN_DURATION_MS = 5 * 60 * 1e3;
-var recentJoins = /* @__PURE__ */ new Map();
-var lockdownGuilds = /* @__PURE__ */ new Set();
-async function lockdownGuild(member) {
+// ═══════════════════════════════════════════════════════════════════════════════
+//  ANTI-RAID
+// ═══════════════════════════════════════════════════════════════════════════════
+const JOIN_THRESHOLD    = 5;
+const JOIN_WINDOW_MS    = 10_000;
+const LOCKDOWN_DURATION = 5 * 60_000;
+const recentJoins    = new Map();
+const lockdownGuilds = new Set();
+
+async function activateLockdown(member) {
   const guild = member.guild;
   if (lockdownGuilds.has(guild.id)) return;
   lockdownGuilds.add(guild.id);
-  logger.warn({ guildId: guild.id }, "Raid detected \u2014 activating lockdown");
-  const channels = guild.channels.cache.filter(
-    (ch) => ch.type === ChannelType.GuildText && ch.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.SendMessages)
+  const textChannels = guild.channels.cache.filter(
+    ch => ch.type === ChannelType.GuildText &&
+          ch.permissionsFor(guild.roles.everyone)?.has(PermissionFlagsBits.SendMessages)
   );
-  for (const [, channel] of channels) {
-    try {
-      if (channel.type === ChannelType.GuildText) {
-        await channel.permissionOverwrites.edit(guild.roles.everyone, {
-          SendMessages: false
-        });
-      }
-    } catch {
-    }
+  for (const [, ch] of textChannels) {
+    try { await ch.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: false }); } catch {}
   }
-  const systemChannel = guild.systemChannel;
-  if (systemChannel) {
-    const joinCount = recentJoins.get(guild.id)?.length ?? JOIN_THRESHOLD;
-    await systemChannel.send({ embeds: [raidAlertEmbed(guild, joinCount)] });
-  }
+  const joinCount = recentJoins.get(guild.id)?.length ?? JOIN_THRESHOLD;
+  guild.systemChannel?.send({ embeds: [new EmbedBuilder()
+    .setColor(C.RED).setTitle("🚨 RAID DETECTED — SERVER LOCKDOWN")
+    .setDescription(`> **${joinCount}** korisnika je ušlo za manje od **10 sekundi**!\n> Server je zaključan na **5 minuta**.`)
+    .addFields(
+      { name: "🏰 Server",    value: guild.name,              inline: true },
+      { name: "👥 Mass Join", value: `${joinCount} korisnika`, inline: true },
+      { name: "⏱️ Trajanje",   value: "5 min (auto-unlock)",   inline: true }
+    ).setThumbnail(guild.iconURL() ?? null).setTimestamp().setFooter({ text: "🛡️ Anti-Raid • GIANNI Bot" })] }).catch(() => {});
   setTimeout(async () => {
     try {
-      for (const [, channel] of channels) {
-        if (channel.type === ChannelType.GuildText) {
-          await channel.permissionOverwrites.edit(guild.roles.everyone, {
-            SendMessages: null
-          });
-        }
+      for (const [, ch] of textChannels) {
+        if (ch.type === ChannelType.GuildText)
+          await ch.permissionOverwrites.edit(guild.roles.everyone, { SendMessages: null });
       }
-      lockdownGuilds.delete(guild.id);
-      recentJoins.delete(guild.id);
-      if (systemChannel) {
-        await systemChannel.send({ embeds: [raidUnlockEmbed(guild)] });
-      }
-      logger.info({ guildId: guild.id }, "Lockdown lifted");
-    } catch (err) {
-      logger.error({ err }, "Error lifting lockdown");
-    }
-  }, LOCKDOWN_DURATION_MS);
-}
-function registerAntiRaid(client) {
-  client.on("guildMemberAdd", async (member) => {
-    const guildId = member.guild.id;
-    if (lockdownGuilds.has(guildId)) return;
-    const now = Date.now();
-    const joins = recentJoins.get(guildId) ?? [];
-    const recentWindow = joins.filter((t) => now - t < JOIN_WINDOW_MS);
-    recentWindow.push(now);
-    recentJoins.set(guildId, recentWindow);
-    logger.debug(
-      { guildId, recentJoins: recentWindow.length },
-      "Member joined"
-    );
-    if (recentWindow.length >= JOIN_THRESHOLD) {
-      await lockdownGuild(member);
-    }
-  });
+      lockdownGuilds.delete(guild.id); recentJoins.delete(guild.id);
+      guild.systemChannel?.send({ embeds: [mkOk("Lockdown završen", `Server **${guild.name}** je otključan.\nRaid zaštita ostaje aktivna.`)] }).catch(() => {});
+    } catch (e) { logger.error({ err: e }, "Error lifting lockdown"); }
+  }, LOCKDOWN_DURATION);
 }
 
-// src/bot/handlers/antiInvite.ts
-import { ChannelType as ChannelType2 } from "discord.js";
-var INVITE_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:discord\.(?:gg|io|me|li)|discordapp\.com\/invite)\/[a-zA-Z0-9-]+/gi;
-function registerAntiInvite(client) {
-  client.on("messageCreate", async (message) => {
-    if (message.author.bot) return;
-    if (!message.guild) return;
-    if (message.channel.type !== ChannelType2.GuildText) return;
-    if (!INVITE_REGEX.test(message.content)) return;
-    INVITE_REGEX.lastIndex = 0;
-    const member = message.member;
-    if (!member) return;
-    if (member.permissions.has("ManageGuild")) return;
-    try {
-      await message.delete();
-    } catch {
-      return;
-    }
-    const channelName = message.channel.name;
-    const embed = inviteDeleteEmbed(member, channelName);
-    try {
-      await message.channel.send({
-        content: `${message.author} \u26A0\uFE0F Slanje invite linkova nije dozvoljeno!`,
-        embeds: [embed]
-      });
-    } catch (err) {
-      logger.warn({ err }, "Could not send invite warning");
-    }
-    logger.info(
-      { userId: message.author.id, guildId: message.guild.id, channelName },
-      "Invite link deleted"
-    );
-  });
-}
+// ─── Anti-Invite ─────────────────────────────────────────────────────────────
+const INVITE_RE = /(?:https?:\/\/)?(?:www\.)?(?:discord\.(?:gg|io|me|li)|discordapp\.com\/invite)\/[a-zA-Z0-9-]+/gi;
 
-// src/bot/handlers/loveCommands.ts
-import {
-  EmbedBuilder as EmbedBuilder2,
-  ChannelType as ChannelType3
-} from "discord.js";
-var BotColors2 = {
-  LOVE: 16731501,
-  SHIP: 16745889,
-  HUG: 16757575,
-  SLAP: 16739125,
-  PAT: 16765286,
-  KISS: 16740020,
-  BITE: 13178954,
-  POKE: 7651580,
-  CUDDLE: 16295362,
-  MARRY: 16369487,
-  DANCE: 10187471,
-  WAVE: 4770532,
-  CRY: 4756975,
-  BLUSH: 16751262,
-  HIGHFIVE: 5420936,
-  FEED: 11066076,
-  STARE: 7107965,
-  ROAST: 16613152
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SOCIAL / LOVE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+const SOCIAL = {
+  hug:      { color: C.ORANGE, emoji: "🤗", lines: ["{from} zagrlio/la {to}! 🤗", "{from} daje {to} super zagrljaj! 💛", "{from} ne pušta {to} iz zagrljaja! 😭"] },
+  kiss:     { color: C.PINK,   emoji: "💋", lines: ["{from} dao/dala {to} pusu! 💋", "{from} poslao/la {to} cmok! 😘", "{from} poljubio/la {to} u čelo! 💖"] },
+  slap:     { color: C.RED,    emoji: "👋", lines: ["{from} ošamario/la {to}! ŠLJAP! 💢", "{from} dao/dala šamar prve klase! 😤", "{from} opalio/la {to} jako! 😱"] },
+  pat:      { color: C.YELLOW, emoji: "👆", lines: ["{from} tapšao/la {to}! 👆", "{from} milovao/la {to} po glavi! 😊", "{from} dao/dala {to} nježan pat-pat! 💫"] },
+  poke:     { color: C.TEAL,   emoji: "👉", lines: ["{from} bockao/la {to}! Hej! 👉", "{from} dirkao/la {to}! 😂", "{from} bodnuo/la {to} u bok! 👀"] },
+  bite:     { color: C.PURPLE, emoji: "🦷", lines: ["{from} ugrizao/la {to}! NOM NOM! 🦷", "{from} ugrize {to}. Zubi su oštri! 😬"] },
+  cuddle:   { color: C.PINK,   emoji: "🥰", lines: ["{from} se mazio/la sa {to}! 🥰", "{from} i {to} zmazali! Preslatko! 😍"] },
+  blush:    { color: C.PINK,   emoji: "😊", lines: ["{from} se zacrveni zbog {to}! 😊", "{from} ne može prestati se smiješiti s {to}! 🌸"] },
+  wave:     { color: C.BLUE,   emoji: "👋", lines: ["{from} maše {to}! Zdravo! 👋", "{from} entuzijastično maše {to}! 🙌"] },
+  highfive: { color: C.GREEN,  emoji: "🙌", lines: ["{from} dao/dala high five sa {to}! 🙌", "{from} i {to} — savršen high five! 🤜🤛"] },
+  feed:     { color: C.TEAL,   emoji: "🍕", lines: ["{from} hrani {to}! Aaa, otvori usta! 🍕", "{from} donio/la {to} nešto ukusno! 🍱"] },
+  stare:    { color: C.DARK,   emoji: "👀", lines: ["{from} buljio/la u {to}... 👀", "{from} ne može skinuti pogled s {to}! 👁️"] },
+  cry:      { color: C.BLUE,   emoji: "😭",
+    solo:  ["{from} plače... 😭", "{from} je u suzama! 💧"],
+    lines: ["{from} plače pred {to}! Utješi ih! 😭"] },
+  dance:    { color: C.PURPLE, emoji: "💃",
+    solo:  ["{from} pleše sam/a! 🕺", "{from} udario/la u ples! 💃"],
+    lines: ["{from} i {to} plešu zajedno! 🎶"] },
+  smile:    { color: C.GOLD,   emoji: "😊", lines: ["{from} se nasmiješio/la na {to}! ☀️", "{from} se topi od osmijeha prema {to}! 🌸"] },
+  lick:     { color: C.TEAL,   emoji: "👅", lines: ["{from} polizao/la {to}! Šta?? 😂", "{from} liže {to}! 😜"] },
+  wink:     { color: C.GOLD,   emoji: "😉",
+    solo:  ["{from} namiguje! 😉"],
+    lines: ["{from} namiguje {to}! 😉 Hm..."] },
+  nod:      { color: C.GREEN,  emoji: "😌",
+    solo:  ["{from} klimne glavom! 😌"],
+    lines: ["{from} klimne {to} — odobrava! 👍"] },
+  sleep:    { color: C.DARK,   emoji: "😴",
+    solo:  ["{from} zaspao/la! 😴 Zzz..."],
+    lines: ["{from} zaspi pored {to}! 💤"] },
+  laugh:    { color: C.YELLOW, emoji: "😂",
+    solo:  ["{from} se smije na glas! 😂"],
+    lines: ["{from} se smije zbog {to}! 😂"] },
+  shrug:    { color: C.BLUE,   emoji: "🤷",
+    solo:  ["{from} slegne ramenima! 🤷"],
+    lines: ["{from} slegne ramenima prema {to}! 🤷"] },
 };
-var marriages = /* @__PURE__ */ new Map();
-function shipPercent(id1, id2) {
-  const seed = [...`${id1}${id2}`].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return ((seed * 7 + 13) % 101 + 100) % 101;
-}
-function lovePercent(id1, id2) {
-  const seed = [...`${id1}love${id2}`].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return ((seed * 11 + 37) % 101 + 100) % 101;
-}
-function heartBar(percent) {
-  const filled = Math.round(percent / 10);
-  return "\u2764\uFE0F".repeat(filled) + "\u{1F5A4}".repeat(10 - filled);
-}
-function shipLabel(percent) {
-  if (percent >= 90) return "\u{1F48D} Savr\u0161en par!";
-  if (percent >= 75) return "\u{1F495} Jako dobro!";
-  if (percent >= 60) return "\u{1F60A} Solidno!";
-  if (percent >= 40) return "\u{1F914} Mo\u017Eda...";
-  if (percent >= 25) return "\u{1F62C} Te\u0161ko...";
-  return "\u{1F494} Nema \u0161anse!";
-}
-function loveLabel(percent) {
-  if (percent >= 90) return "\u{1F498} Totalno zaljubljen/a!";
-  if (percent >= 75) return "\u{1F493} Jako voli!";
-  if (percent >= 60) return "\u{1F49B} Svi\u0111a mu/joj se!";
-  if (percent >= 40) return "\u{1F499} Simpatija!";
-  if (percent >= 20) return "\u{1F331} Mo\u017Eda ne\u0161to...";
-  return "\u{1F976} Hladno kao led!";
-}
-var ROAST_MESSAGES = [
-  "je poslat/a na Marss bez povratne karte \u{1F680}",
-  "je ba\u010Den/a u crnu rupu \u2728",
-  "je izba\u010Den/a iz galaksije \u{1F30C}",
-  "je teleportovan/a na Antarktik \u{1F9CA}",
-  "je zatvoren/a u pixel \u{1F5A5}\uFE0F",
-  "je pretvoren/a u meme \u{1F602}",
-  "je poslan/a na vje\u017Ebu u vojsku \u{1FA96}",
-  "je zamijenjen/a AI botom \u{1F916}",
-  "je usput nestao/la u tunelu \u{1F687}",
-  "je ba\u010Den/a u zaborav \u26A1"
+
+const MARRIAGES = new Map();
+const ROASTS = [
+  "je poslan/a na Mars bez povratne karte 🚀", "je bačen/a u crnu rupu ✨",
+  "je izbačen/a iz galaksije 🌌",               "je teleportovan/a na Antarktik 🧊",
+  "je zamijenjen/a AI botom 🤖",                "je pretvoren/a u meme 😂",
+  "je poslan/a na vojnu vježbu 🪖",             "je nestao/la u tunelu 🚇"
 ];
-function randomRoast() {
-  return ROAST_MESSAGES[Math.floor(Math.random() * ROAST_MESSAGES.length)];
+
+function shipPct(a, b) { const s = [...`${a}${b}`].reduce((x,c) => x+c.charCodeAt(0), 0); return ((s*7+13)%101+100)%101; }
+function lovePct(a, b) { const s = [...`${a}love${b}`].reduce((x,c) => x+c.charCodeAt(0), 0); return ((s*11+37)%101+100)%101; }
+function heartBar(p)   { const f = Math.round(p/10); return "❤️".repeat(f)+"🖤".repeat(10-f); }
+function shipLabel(p)  {
+  if (p>=90) return "💍 Savršen par!"; if (p>=75) return "💕 Jako dobro!";
+  if (p>=60) return "😊 Solidno!";     if (p>=40) return "🤔 Možda...";
+  return "💔 Nema šanse!";
 }
-var SOCIAL_ACTIONS = {
-  hug: {
-    color: BotColors2.HUG,
-    emoji: "\u{1F917}",
-    withTarget: [
-      "{from} zagrlio/la {to}! Toplo i nje\u017Eno! \u{1F917}",
-      "{from} daje {to} super zagrljaj! \u{1F49B}",
-      "{from} ne pu\u0161ta {to} iz zagrljaja! \u{1F62D}"
-    ]
-  },
-  kiss: {
-    color: BotColors2.KISS,
-    emoji: "\u{1F48B}",
-    withTarget: [
-      "{from} dao/dala {to} pusa na obraz! \u{1F48B}",
-      "{from} poslao/la {to} vazdu\u0161ni cmok! \u{1F618}",
-      "{from} poljubio/la {to} u \u010Delo! \u{1F496}"
-    ]
-  },
-  slap: {
-    color: BotColors2.SLAP,
-    emoji: "\u{1F44B}",
-    withTarget: [
-      "{from} o\u0161amario/la {to}! Boli! \u{1F44B}",
-      "{from} dao/dala {to} \u0161amar prve klase! \u{1F4A2}",
-      "{from} opalio/la {to} jako! \u0160LJAP! \u{1F624}"
-    ]
-  },
-  pat: {
-    color: BotColors2.PAT,
-    emoji: "\u{1F446}",
-    withTarget: [
-      "{from} milovao/la {to} po glavi! \u{1F446}",
-      "{from} tap\u0161ao/la {to} - dobar si! \u{1F60A}",
-      "{from} dao/dala {to} nje\u017Ean pat-pat! \u{1F4AB}"
-    ]
-  },
-  poke: {
-    color: BotColors2.POKE,
-    emoji: "\u{1F449}",
-    withTarget: [
-      "{from} bo/la prst u {to}! Bockaaaaj! \u{1F449}",
-      "{from} dirkao/la {to} da vidi je li \u017Eiv/a \u{1F602}",
-      "{from} lagano bodnuo/la {to} u bok! \u{1F440}"
-    ]
-  },
-  bite: {
-    color: BotColors2.BITE,
-    emoji: "\u{1F9B7}",
-    withTarget: [
-      "{from} ugrizao/la {to}! NOM NOM! \u{1F9B7}",
-      "{from} blago ugrize {to}. Zubi su o\u0161tri! \u{1F62C}",
-      "{from} dao/dala {to} mali ugriz! \u{1F42D}"
-    ]
-  },
-  cuddle: {
-    color: BotColors2.CUDDLE,
-    emoji: "\u{1F970}",
-    withTarget: [
-      "{from} se mazio/la sa {to}! Tako slatko! \u{1F970}",
-      "{from} zagrlio/la {to} i ne \u017Eeli oti\u010Di! \u{1F497}",
-      "{from} i {to} su se zmazali! Bo\u017Ee, preslatko! \u{1F629}"
-    ]
-  },
-  blush: {
-    color: BotColors2.BLUSH,
-    emoji: "\u{1F60A}",
-    withTarget: [
-      "{from} se zacrveni gledaju\u0107i {to}! \u{1F60A}",
-      "{from} blago pocrvenio/la zbog {to}! \u2764\uFE0F",
-      "{from} ne mo\u017Ee prestati da se smije\u0161i s {to}! \u{1F338}"
-    ]
-  },
-  wave: {
-    color: BotColors2.WAVE,
-    emoji: "\u{1F44B}",
-    withTarget: [
-      "{from} ma\u0161e {to}! Zdravo! \u{1F44B}",
-      "{from} pozdravlja {to} sa osmijehom! \u{1F604}",
-      "{from} entuzijasti\u010Dno ma\u0161e prema {to}! \u{1F64C}"
-    ]
-  },
-  dance: {
-    color: BotColors2.DANCE,
-    emoji: "\u{1F483}",
-    solo: [
-      "{from} ple\u0161e sam/a! DISCO DISCO! \u{1F57A}",
-      "{from} udario/la u ples! Niko ne mo\u017Ee ga/je zaustaviti! \u{1F483}"
-    ],
-    withTarget: [
-      "{from} poziva {to} na ples! \u{1F483}\u{1F57A}",
-      "{from} i {to} ple\u0161u zajedno! Odli\u010Dno! \u{1F3B6}",
-      "{from} vodi {to} na plesni podij! \u2728"
-    ]
-  },
-  highfive: {
-    color: BotColors2.HIGHFIVE,
-    emoji: "\u{1F64C}",
-    withTarget: [
-      "{from} dao/dala high five sa {to}! \u{1F64C} POGODAK!",
-      "{from} i {to} \u2014 savr\u0161en high five! \u{1F91C}\u{1F91B}",
-      "{from} lebde\u0107i high five za {to}! PAF! \u270B"
-    ]
-  },
-  feed: {
-    color: BotColors2.FEED,
-    emoji: "\u{1F355}",
-    withTarget: [
-      "{from} hrani {to} \u2014 aaa, otvori usta! \u{1F355}",
-      "{from} donio/la {to} ne\u0161to ukusno! \u{1F371}",
-      "{from} priprema {to} ku\u0107ni obrok! \u{1F373}"
-    ]
-  },
-  stare: {
-    color: BotColors2.STARE,
-    emoji: "\u{1F440}",
-    withTarget: [
-      "{from} buljio/la u {to}... dugo i uporno... \u{1F440}",
-      "{from} ne mo\u017Ee skinuti pogled s {to}! \u{1F636}",
-      "{from} gleda {to} kao da ne\u0161to planira... \u{1F914}"
-    ]
-  },
-  cry: {
-    color: BotColors2.CRY,
-    emoji: "\u{1F62D}",
-    solo: [
-      "{from} pla\u010De... ko ga/je utje\u0161i? \u{1F62D}",
-      "{from} je u suzama! Ne pla\u010Di! \u{1F4A7}",
-      "{from} je totalno razbijen/a! \u{1F622}"
-    ],
-    withTarget: [
-      "{from} pla\u010De pred {to}! Utje\u0161i ih! \u{1F62D}",
-      "{from} izlio/izlila suze na {to}! \u{1F4A6}"
-    ]
-  },
-  smile: {
-    color: BotColors2.LOVE,
-    emoji: "\u{1F60A}",
-    withTarget: [
-      "{from} se nasmije\u0161io/la na {to}! Sunce zasjalo! \u2600\uFE0F",
-      "{from} daje {to} najljep\u0161i osmijeh! \u{1F60A}",
-      "{from} se topi od osmijeha prema {to}! \u{1F338}"
-    ]
-  },
-  lick: {
-    color: BotColors2.BITE,
-    emoji: "\u{1F445}",
-    withTarget: [
-      "{from} polizao/la {to} po obrazu! \u0160ta?? \u{1F602}",
-      "{from} li\u017Ee {to} \u2014 nema obja\u0161njenja! \u{1F61C}",
-      "{from} dao/dala {to} iznenadni lick! Weirdo! \u{1F602}"
-    ]
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  WORDLE
+// ═══════════════════════════════════════════════════════════════════════════════
+const WORDS = [
+  "ABOUT","ABOVE","ACUTE","ADMIT","ADOPT","ADULT","AFTER","AGAIN","AGENT","AGREE",
+  "AHEAD","ALARM","ALBUM","ALERT","ALIKE","ALIVE","ALLOW","ALONE","ALONG","ANGEL",
+  "ANGER","ANKLE","APPLY","ARENA","ARGUE","ARISE","ASIDE","ASSET","AUDIT","AVOID",
+  "AWAKE","AWARD","AWARE","BAKER","BEACH","BEGAN","BEGIN","BELOW","BENCH","BERRY",
+  "BLADE","BLAME","BLANK","BLAST","BLAZE","BLEED","BLIND","BLOCK","BLOOD","BLOOM",
+  "BLUNT","BOARD","BONUS","BOOST","BOUND","BRACE","BRAIN","BRAND","BRAVE","BREAD",
+  "BREAK","BREED","BRICK","BRIDE","BRIEF","BRING","BROAD","BUILD","BUILT","BURST",
+  "BUYER","CABIN","CANDY","CARRY","CATCH","CAUSE","CHAIN","CHAIR","CHAOS","CHASE",
+  "CHEAP","CHEAT","CHECK","CHESS","CHEST","CHILD","CHINA","CHIPS","CHOSE","CHUNK",
+  "CLAIM","CLASH","CLASS","CLEAN","CLEAR","CLICK","CLIFF","CLIMB","CLOSE","CLOUD",
+  "COACH","COAST","COUNT","COURT","COVER","CRACK","CRAFT","CRANE","CRASH","CRAWL",
+  "CREAM","CREEK","CRIME","CROSS","CROWD","CROWN","CRUEL","CRUSH","CURVE","CYCLE",
+  "DAILY","DANCE","DEATH","DELAY","DEPTH","DIRTY","DOUBT","DRAFT","DRAIN","DRAMA",
+  "DRAWN","DREAM","DRESS","DRIFT","DRINK","DRIVE","DROVE","DYING","EAGER","EAGLE",
+  "EARLY","EARTH","EIGHT","ELITE","EMPTY","ENEMY","ENJOY","ENTER","EQUAL","ERROR",
+  "EVENT","EVERY","EXACT","EXTRA","FAITH","FALSE","FANCY","FAULT","FEAST","FENCE",
+  "FEVER","FIELD","FIFTH","FIFTY","FIGHT","FINAL","FIRST","FIXED","FLAME","FLASH",
+  "FLEET","FLESH","FLOAT","FLOOD","FLOOR","FLOUR","FOCUS","FORCE","FORGE","FORUM",
+  "FOUND","FRAME","FRANK","FRAUD","FRESH","FRONT","FROST","FULLY","FUNNY","GHOST",
+  "GIANT","GIVEN","GLASS","GLOBE","GLORY","GLOVE","GRACE","GRADE","GRAIN","GRAND",
+  "GRANT","GRASP","GRASS","GRAVE","GREAT","GREEN","GREET","GRIEF","GRILL","GROSS",
+  "GROUP","GROWN","GUARD","GUESS","GUEST","GUIDE","GUILD","GUILT","HAPPY","HARSH",
+  "HEART","HEAVY","HERBS","HONOR","HORSE","HOTEL","HOUSE","HUMAN","HUMOR","HURRY",
+  "IMAGE","INDEX","INNER","ISSUE","JUDGE","JUICE","JUICY","KNIFE","KNOCK","KNOWN",
+  "LABEL","LARGE","LASER","LATER","LAYER","LEARN","LEASE","LEAVE","LEGAL","LEVEL",
+  "LIGHT","LIMIT","LOCAL","LOGIC","LOOSE","LOVER","LOWER","LUCKY","MAGIC","MAJOR",
+  "MAKER","MARCH","MATCH","MEDIA","MERCY","MERIT","METAL","MIGHT","MINOR","MODEL",
+  "MONEY","MONTH","MORAL","MOUNT","MOUSE","MOUTH","MUSIC","NERVE","NEVER","NIGHT",
+  "NOBLE","NOISE","NORTH","NOVEL","NURSE","OCCUR","OCEAN","OFFER","OFTEN","ORDER",
+  "ORGAN","OUTER","OWNER","PAINT","PANEL","PANIC","PAPER","PARTY","PASTA","PATCH",
+  "PAUSE","PEACE","PENNY","PHASE","PHONE","PHOTO","PIECE","PILOT","PIXEL","PIZZA",
+  "PLACE","PLAIN","PLANE","PLANT","PLATE","PLAZA","POINT","POKER","POWER","PRESS",
+  "PRICE","PRIDE","PRIME","PRINT","PRIOR","PRIZE","PROBE","PROVE","PUNCH","QUERY",
+  "QUEST","QUICK","QUIET","QUOTA","QUOTE","RADAR","RADIO","RAISE","RALLY","RANGE",
+  "RAPID","REACH","READY","REALM","REBEL","REFER","RELAX","REPLY","RESET","RIDER",
+  "RIDGE","RIGHT","RISKY","RIVAL","RIVER","ROBOT","ROUGH","ROUND","ROUTE","ROYAL",
+  "RULER","SADLY","SAINT","SALAD","SAUCE","SCALE","SCENE","SCOPE","SCORE","SCOUT",
+  "SENSE","SEVEN","SHADE","SHAKE","SHALL","SHAME","SHAPE","SHARE","SHARK","SHARP",
+  "SHEEP","SHELF","SHELL","SHIFT","SHINE","SHIRT","SHOCK","SHOOT","SHORT","SHOUT",
+  "SIGHT","SINCE","SIXTH","SIXTY","SKILL","SLASH","SLEEP","SLIDE","SLOPE","SMART",
+  "SMELL","SMILE","SMOKE","SOLID","SOLVE","SORRY","SOUND","SOUTH","SPACE","SPARE",
+  "SPEAK","SPEND","SPITE","SPLIT","SPORT","STACK","STAGE","STAMP","STAND","START",
+  "STATE","STEAM","STEEL","STICK","STILL","STOCK","STONE","STORM","STORY","STRAW",
+  "STUDY","STYLE","SUGAR","SUPER","SWEAR","SWEET","SWIFT","SWING","TABLE","TASTE",
+  "TEACH","TEETH","TENSE","THEIR","THEME","THESE","THICK","THING","THINK","THIRD",
+  "THREE","TIGER","TIMER","TIRED","TITLE","TODAY","TOKEN","TOPIC","TOTAL","TOUCH",
+  "TOUGH","TOWER","TOXIC","TRACK","TRADE","TRAIL","TRAIN","TRASH","TREAT","TREND",
+  "TRIAL","TRICK","TRULY","TRUST","TRUTH","TWICE","TWIST","ULTRA","UNDER","UNION",
+  "UNTIL","UPPER","UPSET","URBAN","VALID","VALUE","VENUE","VERSE","VIDEO","VIRAL",
+  "VISIT","VOCAL","VOICE","WASTE","WATCH","WATER","WEIGH","WEIRD","WHEAT","WHERE",
+  "WHICH","WHILE","WHITE","WHOLE","WHOSE","WORLD","WORSE","WORTH","WOULD","WRITE",
+  "WRONG","YACHT","YIELD","YOUNG","YOUTH","ZEBRA"
+];
+const wordleChannels = new Map();
+const wordleGames    = new Map();
+
+function buildWordleBoard(game) {
+  const { word, guesses, maxGuesses } = game;
+  let board = "";
+  for (let i = 0; i < maxGuesses; i++) {
+    if (i < guesses.length) {
+      const guess = guesses[i], remaining = word.split(""), result = Array(5).fill("⬛");
+      for (let j = 0; j < 5; j++) { if (guess[j]===word[j]) { result[j]="🟩"; remaining[j]=null; } }
+      for (let j = 0; j < 5; j++) { if (result[j]!=="🟩") { const idx=remaining.indexOf(guess[j]); if (idx!==-1){result[j]="🟨";remaining[idx]=null;} } }
+      board += result.join("") + "  `" + guess + "`\n";
+    } else { board += "⬜⬜⬜⬜⬜\n"; }
   }
-};
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-function formatText(template, from, to) {
-  return template.replace("{from}", `**${from.displayName}**`).replace("{to}", to ? `**${to.displayName}**` : "**???**");
-}
-async function handleSocialAction(message, command, def) {
-  const mentioned = message.mentions.users.first();
-  if (!mentioned && !def.solo) {
-    await message.reply({
-      embeds: [
-        new EmbedBuilder2().setColor(def.color).setDescription(`${def.emoji} Mora\u0161 ozna\u010Diti nekoga! \`${command} @korisnik\``)
-      ]
-    });
-    return;
-  }
-  const templates = mentioned ? def.withTarget : def.solo ?? def.withTarget;
-  const text = formatText(pickRandom(templates), message.author, mentioned ?? void 0);
-  const embed = new EmbedBuilder2().setColor(def.color).setDescription(text).setTimestamp().setFooter({ text: `\u{1F495} Love System \u2022 Guardian Bot` });
-  await message.reply({ embeds: [embed] });
-}
-function registerLoveCommands(client) {
-  client.on("messageCreate", async (message) => {
-    if (message.author.bot) return;
-    if (message.channel.type !== ChannelType3.GuildText) return;
-    if (!message.content.startsWith(".")) return;
-    const args = message.content.slice(1).trim().split(/\s+/);
-    const command = args[0]?.toLowerCase();
-    if (!command) return;
-    try {
-      if (command === "ship") {
-        const users = message.mentions.users;
-        let u1;
-        let u2;
-        if (users.size >= 2) {
-          const arr = [...users.values()];
-          u1 = arr[0];
-          u2 = arr[1];
-        } else if (users.size === 1) {
-          u1 = message.author;
-          u2 = users.first();
-        } else {
-          await message.reply("`Koristi: .ship @korisnik1 @korisnik2`");
-          return;
-        }
-        const percent = shipPercent(u1.id, u2.id);
-        const bar = heartBar(Math.round(percent / 10) * 10);
-        const label = shipLabel(percent);
-        const shipName = u1.displayName.slice(0, 3) + u2.displayName.slice(-3);
-        const embed = new EmbedBuilder2().setColor(BotColors2.SHIP).setTitle(`\u{1F498} Ship: ${shipName}`).setDescription(
-          `**${u1.displayName}** \u{1F495} **${u2.displayName}**
-
-${bar}
-
-**${percent}%** kompatibilnosti
-*${label}*`
-        ).setThumbnail(u1.displayAvatarURL()).setTimestamp().setFooter({ text: "\u{1F495} Love System \u2022 Guardian Bot" });
-        await message.channel.send({ embeds: [embed] });
-        return;
-      }
-      if (command === "love") {
-        const mentioned = message.mentions.users.first();
-        if (!mentioned) {
-          await message.reply("`Koristi: .love @korisnik`");
-          return;
-        }
-        const percent = lovePercent(message.author.id, mentioned.id);
-        const bar = heartBar(Math.round(percent / 10) * 10);
-        const label = loveLabel(percent);
-        const embed = new EmbedBuilder2().setColor(BotColors2.LOVE).setTitle(`\u2764\uFE0F Love metar`).setDescription(
-          `**${message.author.displayName}** \u2764\uFE0F **${mentioned.displayName}**
-
-${bar}
-
-**${percent}%** ljubavi
-*${label}*`
-        ).setThumbnail(mentioned.displayAvatarURL()).setTimestamp().setFooter({ text: "\u{1F495} Love System \u2022 Guardian Bot" });
-        await message.channel.send({ embeds: [embed] });
-        return;
-      }
-      if (command === "marry") {
-        const mentioned = message.mentions.users.first();
-        if (!mentioned) {
-          await message.reply("`Koristi: .marry @korisnik`");
-          return;
-        }
-        if (mentioned.id === message.author.id) {
-          await message.reply("\u274C Ne mo\u017Ee\u0161 se vjen\u010Dati sam/a sa sobom!");
-          return;
-        }
-        const existingPartner = marriages.get(message.author.id);
-        if (existingPartner) {
-          await message.reply(
-            `\u274C Ve\u0107 si u braku! Koristi \`.divorce\` da se razvede\u0161 prvo.`
-          );
-          return;
-        }
-        if (marriages.get(mentioned.id)) {
-          await message.reply(`\u274C **${mentioned.displayName}** je ve\u0107 u braku!`);
-          return;
-        }
-        marriages.set(message.author.id, mentioned.id);
-        marriages.set(mentioned.id, message.author.id);
-        const embed = new EmbedBuilder2().setColor(BotColors2.MARRY).setTitle("\u{1F48D} Vjen\u010Danje!").setDescription(
-          `\u{1F38A} **${message.author.displayName}** i **${mentioned.displayName}** su sada **u braku**!
-
-> \u010Cestitamo mladencima! \u{1F492}
-
-*Koristi \`.divorce\` za razvod.*`
-        ).setThumbnail(mentioned.displayAvatarURL()).setTimestamp().setFooter({ text: "\u{1F48D} Love System \u2022 Guardian Bot" });
-        await message.channel.send({ embeds: [embed] });
-        return;
-      }
-      if (command === "divorce") {
-        const partnerId = marriages.get(message.author.id);
-        if (!partnerId) {
-          await message.reply("\u274C Nisi u braku!");
-          return;
-        }
-        marriages.delete(message.author.id);
-        marriages.delete(partnerId);
-        const embed = new EmbedBuilder2().setColor(7107965).setTitle("\u{1F494} Razvod").setDescription(
-          `**${message.author.displayName}** je zatra\u017Eio/la razvod.
-
-> Brak je zavr\u0161en. Sretno u daljem \u017Eivotu! \u{1F54A}\uFE0F`
-        ).setTimestamp().setFooter({ text: "\u{1F494} Love System \u2022 Guardian Bot" });
-        await message.channel.send({ embeds: [embed] });
-        return;
-      }
-      if (command === "partner") {
-        const targetUser = message.mentions.users.first() ?? message.author;
-        const partnerId = marriages.get(targetUser.id);
-        if (!partnerId) {
-          await message.channel.send({
-            embeds: [
-              new EmbedBuilder2().setColor(7107965).setDescription(
-                `\u{1F494} **${targetUser.displayName}** trenutno nije u braku.`
-              )
-            ]
-          });
-          return;
-        }
-        try {
-          const partner = await client.users.fetch(partnerId);
-          const embed = new EmbedBuilder2().setColor(BotColors2.MARRY).setTitle("\u{1F48D} Bra\u010Dni status").setDescription(
-            `**${targetUser.displayName}** je u braku sa **${partner.displayName}**! \u{1F492}`
-          ).setThumbnail(partner.displayAvatarURL()).setTimestamp().setFooter({ text: "\u{1F48D} Love System \u2022 Guardian Bot" });
-          await message.reply({ embeds: [embed] });
-        } catch {
-          await message.reply("\u274C Gre\u0161ka pri u\u010Ditavanju partnera.");
-        }
-        return;
-      }
-      if (command === "fuck") {
-        const mentioned = message.mentions.users.first();
-        if (!mentioned) {
-          await message.reply("`Koristi: .fuck @korisnik`");
-          return;
-        }
-        if (mentioned.id === message.author.id) {
-          await message.reply("\u{1F926} Nemogu\u0107e je 'fuckati' samog/samu sebe.");
-          return;
-        }
-        const roast = randomRoast();
-        const embed = new EmbedBuilder2().setColor(BotColors2.ROAST).setTitle("\u{1F680} Odleti!").setDescription(
-          `**${message.author.displayName}** \u0161alje **${mentioned.displayName}** na put!
-
-> **${mentioned.displayName}** ${roast}`
-        ).setTimestamp().setFooter({ text: "\u{1F602} Love System \u2022 Guardian Bot" });
-        await message.channel.send({ embeds: [embed] });
-        return;
-      }
-      if (command === "lovecmds" || command === "lovehelp") {
-        const embed = new EmbedBuilder2().setColor(BotColors2.LOVE).setTitle("\u{1F495} Love & Social komande").setDescription("Sve dostupne love/social komande:").addFields(
-          {
-            name: "\u{1F498} Ljubav & Brak",
-            value: "`.ship @a @b` \u2014 kompatibilnost para\n`.love @a` \u2014 love metar\n`.marry @a` \u2014 vjen\u010Daj se\n`.divorce` \u2014 razvedi se\n`.partner` \u2014 provjeri ko je \u010Diji brak",
-            inline: false
-          },
-          {
-            name: "\u{1F917} Nje\u017Ene akcije",
-            value: "`.hug @a` \u2014 zagrli\n`.kiss @a` \u2014 daj pusa\n`.pat @a` \u2014 pomiluj po glavi\n`.cuddle @a` \u2014 mazi se\n`.blush @a` \u2014 zacrveni se\n`.smile @a` \u2014 nasmije\u0161i se\n`.feed @a` \u2014 nahrani",
-            inline: true
-          },
-          {
-            name: "\u{1F602} Zabavne akcije",
-            value: "`.slap @a` \u2014 o\u0161amari\n`.poke @a` \u2014 bockaj\n`.bite @a` \u2014 ugrizi\n`.lick @a` \u2014 poli\u017Ei\n`.stare @a` \u2014 bulji\n`.wave @a` \u2014 mahni\n`.highfive @a` \u2014 high five",
-            inline: true
-          },
-          {
-            name: "\u{1F3AD} Ostalo",
-            value: "`.dance` / `.dance @a` \u2014 ple\u0161i\n`.cry` / `.cry @a` \u2014 pla\u010Di\n`.fuck @a` \u2014 po\u0161alji nekoga u svemir \u{1F680}",
-            inline: false
-          }
-        ).setTimestamp().setFooter({ text: "\u{1F495} Love System \u2022 Guardian Bot" });
-        await message.channel.send({ embeds: [embed] });
-        return;
-      }
-      const actionDef = SOCIAL_ACTIONS[command];
-      if (actionDef) {
-        await handleSocialAction(message, command, actionDef);
-        return;
-      }
-    } catch (err) {
-      logger.error({ err, command }, "Love command error");
-    }
-  });
+  return board;
 }
 
-// src/bot/commands/events.ts
-var events_exports = {};
-__export(events_exports, {
-  data: () => data,
-  execute: () => execute
-});
-import {
-  SlashCommandBuilder,
-  GuildScheduledEventStatus
-} from "discord.js";
-var data = new SlashCommandBuilder().setName("events").setDescription("\u{1F4C5} Prika\u017Ei predstoje\u0107e doga\u0111aje na serveru");
-async function execute(interaction) {
-  if (!interaction.guild) {
-    await interaction.reply({
-      embeds: [errorEmbed("Gre\u0161ka", "Ova komanda je dostupna samo na serverima.")],
-      ephemeral: true
-    });
-    return;
-  }
-  await interaction.deferReply();
+function wordleEmbed(game, extra = "") {
+  const { guesses, word, maxGuesses } = game;
+  const won = guesses.length>0 && guesses[guesses.length-1]===word;
+  const lost = !won && guesses.length>=maxGuesses;
+  let desc = buildWordleBoard(game);
+  if (extra) desc += `\n${extra}`;
+  if (lost)  desc += `\n\n> Tačna riječ: **${word}**`;
+  return new EmbedBuilder()
+    .setColor(won ? C.GREEN : lost ? C.RED : C.BLUE)
+    .setTitle(won ? "🎉 WORDLE — Pobjeda!" : lost ? "💀 WORDLE — Game Over" : "🟩 WORDLE")
+    .setDescription(desc)
+    .addFields({ name: "Pokušaji", value: `${guesses.length}/${maxGuesses}`, inline: true }, { name: "Legenda", value: "🟩 Tačno  🟨 Krivi položaj  ⬛ Nema", inline: false })
+    .setTimestamp().setFooter({ text: "🟩 Wordle • GIANNI Bot" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  WARN SYSTEM (1h cooldown)
+// ═══════════════════════════════════════════════════════════════════════════════
+const warningStore  = new Map(); // `${guildId}:${userId}` -> [{ reason, by, date }]
+const warnCooldowns = new Map(); // `${guildId}:${userId}` -> timestamp
+
+function checkWarnCooldown(guildId, targetId) {
+  const key = `${guildId}:${targetId}`;
+  const last = warnCooldowns.get(key);
+  if (!last) return null;
+  const diff = Date.now() - last;
+  const hour = 60 * 60 * 1000;
+  if (diff < hour) return Math.ceil((hour - diff) / 60000); // returns minutes remaining
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  GIVEAWAY
+// ═══════════════════════════════════════════════════════════════════════════════
+const activeGiveaways = new Map();
+async function pickGwWinners(msg, count) {
   try {
-    const scheduledEvents = await interaction.guild.scheduledEvents.fetch();
-    const upcoming = scheduledEvents.filter(
-      (e) => e.status === GuildScheduledEventStatus.Scheduled || e.status === GuildScheduledEventStatus.Active
-    ).map((e) => ({
-      name: e.name,
-      description: e.description,
-      startTime: e.scheduledStartAt ?? /* @__PURE__ */ new Date(),
-      endTime: e.scheduledEndAt ?? null,
-      location: e.entityMetadata?.location ?? (e.channel ? `#${e.channel.name}` : null),
-      userCount: e.userCount
-    })).sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-    if (upcoming.length === 0) {
-      await interaction.editReply({
-        embeds: [
-          infoEmbed(
-            "Nema doga\u0111aja",
-            "Trenutno nema zakazanih doga\u0111aja na ovom serveru.\n\nAdmini mogu kreirati doga\u0111aje putem **Server Events** sekcije."
-          )
-        ]
-      });
-      return;
-    }
-    await interaction.editReply({
-      embeds: [eventsEmbed(interaction.guild, upcoming)]
-    });
-  } catch (err) {
-    await interaction.editReply({
-      embeds: [
-        errorEmbed(
-          "Gre\u0161ka",
-          "Nije mogu\u0107e u\u010Ditati doga\u0111aje. Provjeri da bot ima odgovaraju\u0107e dozvole."
-        )
-      ]
-    });
-  }
-}
-
-// src/bot/commands/gws.ts
-var gws_exports = {};
-__export(gws_exports, {
-  data: () => data2,
-  execute: () => execute2
-});
-import {
-  SlashCommandBuilder as SlashCommandBuilder2,
-  ChannelType as ChannelType4
-} from "discord.js";
-var activeGiveaways = /* @__PURE__ */ new Map();
-async function pickWinners(message, count) {
-  try {
-    const reaction = message.reactions.cache.get("\u{1F389}");
+    const reaction = msg.reactions.cache.get("🎉");
     if (!reaction) return [];
     const users = await reaction.users.fetch();
-    const eligible = users.filter((u) => !u.bot).map((u) => u.id);
-    if (eligible.length === 0) return [];
-    const shuffled = eligible.sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, count);
-  } catch {
-    return [];
-  }
+    return users.filter(u => !u.bot).map(u => u.id).sort(() => Math.random()-0.5).slice(0, count);
+  } catch { return []; }
 }
-async function endGiveaway(giveaway, channel) {
-  giveaway.ended = true;
-  let message = null;
-  try {
-    message = await channel.messages.fetch(giveaway.messageId);
-  } catch {
-    return;
-  }
-  const winners = await pickWinners(message, giveaway.winners);
-  await message.edit({
-    embeds: [giveawayEndEmbed(giveaway.prize, winners)]
-  });
-  const winnersText = winners.length > 0 ? `\u{1F389} Pobednik(ci): ${winners.map((w) => `<@${w}>`).join(", ")}` : "Nema pobednika \u2014 niko nije reagovao.";
-  await channel.send({
-    content: `\u{1F3C6} **GIVEAWAY ZAVR\u0160EN** \u2014 ${giveaway.prize}
-${winnersText}`,
-    reply: { messageReference: giveaway.messageId }
-  });
-  logger.info({ giveawayId: giveaway.messageId, winners }, "Giveaway ended");
-}
-var data2 = new SlashCommandBuilder2().setName("gws").setDescription("\u{1F389} Giveaway sistem").addSubcommand(
-  (sub) => sub.setName("create").setDescription("\u{1F381} Pokreni novi giveaway").addStringOption(
-    (opt) => opt.setName("nagrada").setDescription("\u0160ta se osvaja?").setRequired(true)
-  ).addIntegerOption(
-    (opt) => opt.setName("trajanje").setDescription("Trajanje u minutima (npr. 60)").setMinValue(1).setMaxValue(43200).setRequired(true)
-  ).addIntegerOption(
-    (opt) => opt.setName("pobednici").setDescription("Broj pobednika (default: 1)").setMinValue(1).setMaxValue(20).setRequired(false)
-  )
-).addSubcommand(
-  (sub) => sub.setName("end").setDescription("\u{1F6D1} Zavr\u0161i giveaway pre vremena").addStringOption(
-    (opt) => opt.setName("message_id").setDescription("ID poruke giveaway-a").setRequired(true)
-  )
-).addSubcommand(
-  (sub) => sub.setName("reroll").setDescription("\u{1F504} Rerollaj pobednike giveaway-a").addStringOption(
-    (opt) => opt.setName("message_id").setDescription("ID poruke giveaway-a").setRequired(true)
-  )
-);
-async function execute2(interaction) {
-  if (!interaction.guild) {
-    await interaction.reply({
-      embeds: [errorEmbed("Gre\u0161ka", "Ova komanda radi samo na serverima.")],
-      ephemeral: true
-    });
-    return;
-  }
-  const sub = interaction.options.getSubcommand();
-  if (sub === "create") {
-    const prize = interaction.options.getString("nagrada", true);
-    const durationMin = interaction.options.getInteger("trajanje", true);
-    const winnersCount = interaction.options.getInteger("pobednici") ?? 1;
-    if (interaction.channel?.type !== ChannelType4.GuildText) {
-      await interaction.reply({
-        embeds: [
-          errorEmbed("Gre\u0161ka", "Giveaway se mo\u017Ee pokrenuti samo u tekst kanalima.")
-        ],
-        ephemeral: true
-      });
-      return;
-    }
-    const endTime = new Date(Date.now() + durationMin * 60 * 1e3);
-    const embed = giveawayStartEmbed(prize, winnersCount, endTime, interaction.user);
-    await interaction.reply({
-      embeds: [
-        successEmbed(
-          "Giveaway pokrenut!",
-          `\u{1F389} Giveaway za **${prize}** je po\u010Deo u ovom kanalu!`
-        )
-      ],
-      ephemeral: true
-    });
-    const msg = await interaction.channel.send({
-      embeds: [embed]
-    });
-    await msg.react("\u{1F389}");
-    const giveaway = {
-      messageId: msg.id,
-      channelId: msg.channelId,
-      guildId: interaction.guild.id,
-      prize,
-      winners: winnersCount,
-      endTime,
-      hostedBy: interaction.user.id,
-      ended: false
-    };
-    activeGiveaways.set(msg.id, giveaway);
-    setTimeout(async () => {
-      const current = activeGiveaways.get(msg.id);
-      if (!current || current.ended) return;
-      await endGiveaway(current, interaction.channel);
-    }, durationMin * 60 * 1e3);
-    logger.info(
-      { giveawayId: msg.id, prize, durationMin, winnersCount },
-      "Giveaway created"
-    );
-    return;
-  }
-  if (sub === "end") {
-    const messageId = interaction.options.getString("message_id", true);
-    const giveaway = activeGiveaways.get(messageId);
-    if (!giveaway) {
-      await interaction.reply({
-        embeds: [
-          errorEmbed(
-            "Giveaway nije prona\u0111en",
-            "Provjeri ID poruke \u2014 giveaway mo\u017Eda ve\u0107 nije aktivan ili je ID pogre\u0161an."
-          )
-        ],
-        ephemeral: true
-      });
-      return;
-    }
-    if (giveaway.ended) {
-      await interaction.reply({
-        embeds: [errorEmbed("Giveaway je ve\u0107 zavr\u0161en", "Ovaj giveaway je ve\u0107 zavr\u0161io.")],
-        ephemeral: true
-      });
-      return;
-    }
-    if (interaction.channel?.type !== ChannelType4.GuildText) return;
-    await interaction.deferReply({ ephemeral: true });
-    await endGiveaway(giveaway, interaction.channel);
-    await interaction.editReply({
-      embeds: [successEmbed("Giveaway zavr\u0161en", `Giveaway za **${giveaway.prize}** je ru\u010Dno zavr\u0161en.`)]
-    });
-    return;
-  }
-  if (sub === "reroll") {
-    const messageId = interaction.options.getString("message_id", true);
-    const giveaway = activeGiveaways.get(messageId);
-    if (!giveaway) {
-      await interaction.reply({
-        embeds: [
-          errorEmbed(
-            "Giveaway nije prona\u0111en",
-            "Provjeri ID poruke."
-          )
-        ],
-        ephemeral: true
-      });
-      return;
-    }
-    if (interaction.channel?.type !== ChannelType4.GuildText) return;
-    await interaction.deferReply({ ephemeral: true });
-    let message = null;
-    try {
-      message = await interaction.channel.messages.fetch(messageId);
-    } catch {
-      await interaction.editReply({
-        embeds: [errorEmbed("Gre\u0161ka", "Nije mogu\u0107e u\u010Ditati poruku giveaway-a.")]
-      });
-      return;
-    }
-    const newWinners = await pickWinners(message, giveaway.winners);
-    const embed = giveawayRerollEmbed(giveaway.prize, newWinners);
-    await interaction.channel.send({
-      embeds: [embed],
-      reply: { messageReference: messageId }
-    });
-    await interaction.editReply({
-      embeds: [
-        successEmbed(
-          "Reroll zavr\u0161en",
-          `Novi pobednici za **${giveaway.prize}** su odabrani!`
-        )
-      ]
-    });
-    logger.info({ giveawayId: messageId, newWinners }, "Giveaway rerolled");
-    return;
-  }
+async function endGiveaway(g, channel) {
+  g.ended = true;
+  let msg; try { msg = await channel.messages.fetch(g.messageId); } catch { return; }
+  const wins  = await pickGwWinners(msg, g.winners);
+  const wText = wins.length>0 ? wins.map(w=>`<@${w}>`).join(", ") : "Nema pobjednika";
+  await msg.edit({ embeds: [new EmbedBuilder().setColor(C.GOLD).setTitle("🏆 GIVEAWAY ZAVRŠEN 🏆")
+    .setDescription(`## ${g.prize}\n\n🎉 **Pobjednik(ci):** ${wText}\n\n*Čestitamo!*`)
+    .setTimestamp().setFooter({ text: "🎁 GIANNI Bot • Giveaway" })] });
+  channel.send({ content: `🏆 **GW ZAVRŠEN** — ${g.prize}\n${wins.length>0?`🎉 Pobjednici: ${wText}`:"Nema pobjednika."}`, reply: { messageReference: g.messageId } }).catch(()=>{});
 }
 
-// src/bot/index.ts
-var commands = [events_exports, gws_exports];
+// ═══════════════════════════════════════════════════════════════════════════════
+//  DOT-COMMAND HANDLERS
+// ═══════════════════════════════════════════════════════════════════════════════
+async function handleDotCommand(msg, client) {
+  if (!msg.content.startsWith(PREFIX)) return false;
+  const raw  = msg.content.slice(PREFIX.length).trim();
+  const args = raw.split(/\s+/);
+  const cmd  = args[0]?.toLowerCase();
+  if (!cmd) return false;
+
+  try {
+
+    // ── .help ────────────────────────────────────────────────────────────────
+    if (cmd === "help" || cmd === "komande") {
+      const e = new EmbedBuilder().setColor(C.PURPLE).setTitle("📋 GIANNI Bot — Sve komande")
+        .addFields(
+          { name: "🛡️ Zaštita (auto)", value: "Anti-Raid • Anti-Invite (uvijek aktivno)", inline: false },
+          { name: "📅 Server", value: "`.events` `.serverinfo` `.userinfo [@k]` `.gws create|end|reroll`", inline: false },
+          { name: "📨 DM (owner)", value: "`.dmaktive <poruka>`", inline: false },
+          { name: "🟩 Wordle", value: "`.wordle set <#kanal>` `.wordle start` `.wordle stop`", inline: false },
+          { name: "💘 Zabava", value: "`.tinder [@k]`", inline: false },
+          { name: "⚠️ Mod (mod+)", value: "`.warn @k <razlog>` `.warnings @k` `.clearwarn @k`", inline: false },
+          { name: "💕 Love (SFW)", value: "`.ship` `.love` `.marry` `.divorce` `.partner` `.hug` `.kiss` `.pat` `.cuddle` `.blush` `.smile` `.feed` `.wave` `.slap` `.poke` `.bite` `.lick` `.stare` `.highfive` `.dance` `.cry` `.wink` `.nod` `.sleep` `.laugh` `.shrug` `.fuck` (roast)", inline: false },
+          { name: "🔞 NSFW (nsfw kanali)", value: "`.fucknsfw` `.daddy` `.mommy`", inline: false }
+        ).setTimestamp().setFooter({ text: "🛡️ GIANNI Bot" });
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .events ──────────────────────────────────────────────────────────────
+    if (cmd === "events") {
+      if (!msg.guild) { await msg.reply({ embeds: [mkErr("Greška","Samo na serverima.")] }); return true; }
+      const evs = (await msg.guild.scheduledEvents.fetch())
+        .filter(e => e.status === GuildScheduledEventStatus.Scheduled || e.status === GuildScheduledEventStatus.Active)
+        .map(e => ({ name: e.name, startTime: e.scheduledStartAt ?? new Date(), location: e.entityMetadata?.location ?? (e.channel ? `#${e.channel.name}` : "Discord"), userCount: e.userCount }))
+        .sort((a,b) => a.startTime - b.startTime);
+      if (!evs.length) { await msg.reply({ embeds: [mkInfo("Nema događaja","Nema zakazanih događaja.")] }); return true; }
+      const embed = new EmbedBuilder().setColor(C.BLUE).setTitle(`📅 Predstojeći događaji — ${msg.guild.name}`)
+        .setDescription(evs.slice(0,8).map(e => `> 🎪 **${e.name}**\n> 🗓️ <t:${Math.floor(e.startTime.getTime()/1000)}:F> • 📍 ${e.location}${e.userCount != null ? ` • 👥 ${e.userCount}` : ""}`).join("\n\n"))
+        .setTimestamp().setFooter({ text: FOOTER });
+      await msg.reply({ embeds: [embed] });
+      return true;
+    }
+
+    // ── .serverinfo ──────────────────────────────────────────────────────────
+    if (cmd === "serverinfo") {
+      if (!msg.guild) { await msg.reply({ embeds: [mkErr("Greška","Samo na serverima.")] }); return true; }
+      const g = await msg.guild.fetch();
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.GOLD).setTitle(`🏰 ${g.name}`)
+        .setThumbnail(g.iconURL({ size: 256 }) ?? null)
+        .addFields(
+          { name: "👑 Vlasnik",        value: `<@${g.ownerId}>`,                             inline: true },
+          { name: "👥 Članovi",        value: `${g.memberCount}`,                            inline: true },
+          { name: "📅 Kreiran",        value: `<t:${Math.floor(g.createdTimestamp/1000)}:D>`, inline: true },
+          { name: "💬 Kanali",         value: `${g.channels.cache.size}`,                    inline: true },
+          { name: "🎭 Uloge",          value: `${g.roles.cache.size}`,                       inline: true },
+          { name: "🆔 ID",             value: `\`${g.id}\``,                                 inline: true }
+        ).setImage(g.bannerURL({ size: 1024 }) ?? null).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .userinfo ────────────────────────────────────────────────────────────
+    if (cmd === "userinfo") {
+      const target = msg.mentions.members?.first() ?? msg.member;
+      const user   = target instanceof GuildMember ? target.user : msg.author;
+      const member = target instanceof GuildMember ? target : msg.member;
+      const roles  = member?.roles.cache.filter(r=>r.id!==msg.guild?.id).sort((a,b)=>b.position-a.position).map(r=>`${r}`).slice(0,8).join(" ") || "Nema";
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(member?.displayColor || C.BLUE).setTitle(`👤 ${user.globalName ?? user.username}`)
+        .setThumbnail(user.displayAvatarURL({ size: 256 }))
+        .addFields(
+          { name: "🏷️ Tag",           value: `\`${user.tag}\``,                                 inline: true },
+          { name: "🆔 ID",            value: `\`${user.id}\``,                                  inline: true },
+          { name: "🤖 Bot",           value: user.bot ? "Da" : "Ne",                            inline: true },
+          { name: "📅 Na Discordu od",value: `<t:${Math.floor(user.createdTimestamp/1000)}:D>`,  inline: true },
+          ...(member?.joinedTimestamp ? [{ name: "📥 Pridružen",  value: `<t:${Math.floor(member.joinedTimestamp/1000)}:D>`, inline: true }] : []),
+          { name: "🎭 Uloge", value: roles, inline: false }
+        ).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .gws ─────────────────────────────────────────────────────────────────
+    if (cmd === "gws") {
+      const sub = args[1]?.toLowerCase();
+      if (!msg.guild || msg.channel.type !== ChannelType.GuildText) return true;
+
+      if (sub === "create") {
+        const rest = args.slice(2).join(" "); // prize mins [winners]
+        const parts = rest.trim().split(/\s+/);
+        const mins  = parseInt(parts[parts.length-1]);
+        if (isNaN(mins)) { await msg.reply({ embeds: [mkErr("Greška","`.gws create <nagrada> <minute>`")] }); return true; }
+        const prize   = parts.slice(0,-1).join(" ") || "Nagrada";
+        const winners = 1;
+        const endTime = new Date(Date.now() + mins*60_000);
+        const ts = Math.floor(endTime.getTime()/1000);
+        const gEmbed = new EmbedBuilder().setColor(C.PINK).setTitle("🎉 GIVEAWAY 🎉")
+          .setDescription(`## ${prize}\n\n> Reaguj sa 🎉 da učestvuješ!\n\n⏰ **Završava se:** <t:${ts}:R>\n🏆 **Pobjednika:** ${winners}\n🎊 **Organizuje:** ${msg.author}`)
+          .setTimestamp(endTime).setFooter({ text: "🎁 Završava se" });
+        const gMsg = await msg.channel.send({ embeds: [gEmbed] });
+        await gMsg.react("🎉");
+        const g = { messageId: gMsg.id, channelId: gMsg.channelId, guildId: msg.guild.id, prize, winners, endTime, ended: false };
+        activeGiveaways.set(gMsg.id, g);
+        setTimeout(async () => { const curr = activeGiveaways.get(gMsg.id); if (!curr||curr.ended) return; await endGiveaway(curr, msg.channel); }, mins*60_000);
+        await msg.reply({ embeds: [mkOk("Giveaway pokrenut!", `Giveaway za **${prize}** je počeo! ID: \`${gMsg.id}\``)] });
+        return true;
+      }
+      if (sub === "end") {
+        const mid = args[2];
+        if (!mid) { await msg.reply({ embeds: [mkErr("Greška","`.gws end <message_id>`")] }); return true; }
+        const g = activeGiveaways.get(mid);
+        if (!g||g.ended) { await msg.reply({ embeds: [mkErr("Nije pronađen","Giveaway ne postoji ili je završen.")] }); return true; }
+        await endGiveaway(g, msg.channel);
+        return true;
+      }
+      if (sub === "reroll") {
+        const mid = args[2];
+        if (!mid) { await msg.reply({ embeds: [mkErr("Greška","`.gws reroll <message_id>`")] }); return true; }
+        const g = activeGiveaways.get(mid);
+        if (!g) { await msg.reply({ embeds: [mkErr("Nije pronađen","Giveaway ne postoji.")] }); return true; }
+        try {
+          const gMsg  = await msg.channel.messages.fetch(mid);
+          const wins  = await pickGwWinners(gMsg, g.winners);
+          const wText = wins.length>0 ? wins.map(w=>`<@${w}>`).join(", ") : "Nema pobjednika";
+          await msg.channel.send({ embeds: [mkOk("🔄 Reroll",`**${g.prize}** — Novi pobjednici: ${wText}`)] });
+        } catch { await msg.reply({ embeds: [mkErr("Greška","Nije moguće učitati poruku.")] }); }
+        return true;
+      }
+      await msg.reply({ embeds: [mkInfo("GWS komande","`.gws create <nagrada> <minute>` `.gws end <id>` `.gws reroll <id>`")] });
+      return true;
+    }
+
+    // ── .dmaktive ────────────────────────────────────────────────────────────
+    if (cmd === "dmaktive" || cmd === "dm-aktive") {
+      if (!await requireOwner(msg)) return true;
+      if (!msg.guild) return true;
+      const poruka = args.slice(1).join(" ");
+      if (!poruka) { await msg.reply({ embeds: [mkErr("Greška","`.dmaktive <poruka>`")] }); return true; }
+      const reply = await msg.reply({ embeds: [mkInfo("DM-Aktive", "Šaljem poruke svim članovima... ⏳")] });
+      const members = await msg.guild.members.fetch();
+      const targets = members.filter(m => !m.user.bot);
+      let sent = 0, failed = 0;
+      const dmEmbed = new EmbedBuilder().setColor(C.BLUE).setTitle(`📨 Poruka od **${msg.guild.name}**`)
+        .setDescription(poruka).setThumbnail(msg.guild.iconURL() ?? null)
+        .setTimestamp().setFooter({ text: `📨 ${msg.guild.name} • GIANNI Bot` });
+      for (const [, member] of targets) {
+        try { await member.user.send({ embeds: [dmEmbed] }); sent++; } catch { failed++; }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      await reply.edit({ embeds: [mkOk("DM-Aktive završen",`✅ Poslano: **${sent}**\n❌ Neuspješno: **${failed}**\n📨 Ukupno: **${targets.size}**`)] });
+      return true;
+    }
+
+    // ── .wordle ──────────────────────────────────────────────────────────────
+    if (cmd === "wordle") {
+      const sub = args[1]?.toLowerCase();
+      if (!msg.guild) return true;
+      if (sub === "set") {
+        const ch = msg.mentions.channels.first();
+        if (!ch) { await msg.reply({ embeds: [mkErr("Greška","`.wordle set #kanal`")] }); return true; }
+        wordleChannels.set(msg.guild.id, ch.id);
+        await msg.reply({ embeds: [mkOk("Wordle kanal postavljen",`🟩 Wordle se igra u ${ch}!\nPiši 5-slovna engleska slova direktno u kanal!`)] });
+        return true;
+      }
+      if (sub === "start") {
+        const chId = wordleChannels.get(msg.guild.id);
+        if (!chId) { await msg.reply({ embeds: [mkWarn("Kanal nije postavljen","Koristi `.wordle set #kanal` prvo!")] }); return true; }
+        const word = WORDS[Math.floor(Math.random() * WORDS.length)];
+        wordleGames.set(chId, { word, guesses: [], maxGuesses: 6 });
+        await msg.reply({ embeds: [new EmbedBuilder().setColor(C.GREEN).setTitle("🟩 WORDLE — Nova partija!")
+          .setDescription("⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n\n> Pogodi **5-slovnu englesku** riječ!\n> Ukucaj direktno u kanal!")
+          .addFields({ name: "🟩 Zeleno", value: "Tačno", inline: true }, { name: "🟨 Žuto", value: "Krivi položaj", inline: true }, { name: "⬛ Crno", value: "Nema", inline: true })
+          .setTimestamp().setFooter({ text: FOOTER })] });
+        return true;
+      }
+      if (sub === "stop") {
+        const chId = wordleChannels.get(msg.guild.id);
+        if (chId) wordleGames.delete(chId);
+        await msg.reply({ embeds: [mkInfo("Wordle zaustavljen","Partija je prekinuta.")] });
+        return true;
+      }
+      await msg.reply({ embeds: [mkInfo("Wordle","`.wordle set #kanal` `.wordle start` `.wordle stop`")] });
+      return true;
+    }
+
+    // ── .tinder ──────────────────────────────────────────────────────────────
+    if (cmd === "tinder") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const pct    = lovePct(msg.author.id, target.id);
+      const isMatch = pct >= 50;
+
+      let gif = null;
+      if (isMatch) {
+        gif = await fetchGif(pick(["kiss", "hug", "cuddle"]));
+      } else {
+        gif = await fetchGif(pick(["cry", "sleep", "nope"]));
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(isMatch ? C.GREEN : C.RED)
+        .setTitle(isMatch ? "💚 IT'S A MATCH!" : "💔 NO MATCH")
+        .setDescription(
+          isMatch
+            ? `### ${msg.author.displayName} 💚 ${target.displayName}\n\n> Tinder kaže: **MATCH!** 🎉\n> Kompatibilnost: **${pct}%**\n> Čestitamo! Swipe right! 💘`
+            : `### ${msg.author.displayName} 💔 ${target.displayName}\n\n> Tinder kaže: **NO MATCH** 😬\n> Kompatibilnost: **${pct}%**\n> Swipe left! Nastavi tražiti! 💀`
+        )
+        .setThumbnail(isMatch ? target.displayAvatarURL() : msg.author.displayAvatarURL())
+        .setTimestamp().setFooter({ text: "💘 Tinder • GIANNI Bot" });
+      if (gif) embed.setImage(gif);
+      await msg.reply({ embeds: [embed] });
+      return true;
+    }
+
+    // ── .warn ────────────────────────────────────────────────────────────────
+    if (cmd === "warn") {
+      if (!await requireMod(msg)) return true;
+      const target = msg.mentions.members?.first();
+      const reason = args.slice(2).join(" ");
+      if (!target || !reason) { await msg.reply({ embeds: [mkErr("Greška","`.warn @korisnik <razlog>`")] }); return true; }
+      const cooldownMins = checkWarnCooldown(msg.guild?.id, target.id);
+      if (cooldownMins !== null) {
+        await msg.reply({ embeds: [mkWarn("Cooldown aktiviran",`Ovaj korisnik je već upozoren. Možeš opet za **${cooldownMins} min**! ⏰`)] });
+        return true;
+      }
+      const key = `${msg.guild?.id}:${target.id}`;
+      const list = warningStore.get(key) ?? [];
+      list.push({ reason, by: msg.author.id, date: new Date().toISOString() });
+      warningStore.set(key, list);
+      warnCooldowns.set(key, Date.now());
+      const embed = new EmbedBuilder().setColor(C.YELLOW).setTitle("⚠️ Upozorenje")
+        .setThumbnail(target.user.displayAvatarURL())
+        .addFields(
+          { name: "👤 Korisnik",     value: `${target}`,     inline: true },
+          { name: "👮 Moderator",    value: `${msg.author}`, inline: true },
+          { name: "📝 Razlog",       value: reason,          inline: false },
+          { name: "📊 Ukupno upoz.", value: `**${list.length}**`, inline: true },
+          { name: "⏰ Sljedeće warn", value: "za 1 sat",          inline: true }
+        ).setTimestamp().setFooter({ text: FOOTER });
+      await msg.channel.send({ embeds: [embed] });
+      target.user.send({ embeds: [new EmbedBuilder().setColor(C.YELLOW).setTitle(`⚠️ Upozorenje — ${msg.guild?.name}`)
+        .setDescription(`**Razlog:** ${reason}\n**Moderator:** ${msg.author.globalName ?? msg.author.username}\n*Ukupno: **${list.length}***`)
+        .setTimestamp().setFooter({ text: FOOTER })] }).catch(()=>{});
+      return true;
+    }
+
+    // ── .warnings ────────────────────────────────────────────────────────────
+    if (cmd === "warnings") {
+      if (!await requireMod(msg)) return true;
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply({ embeds: [mkErr("Greška","`.warnings @korisnik`")] }); return true; }
+      const list = warningStore.get(`${msg.guild?.id}:${target.id}`) ?? [];
+      if (!list.length) { await msg.reply({ embeds: [mkInfo("Nema upozorenja",`**${target.displayName}** nema upozorenja.`)] }); return true; }
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.YELLOW).setTitle(`⚠️ Upozorenja — ${target.displayName}`)
+        .setThumbnail(target.displayAvatarURL())
+        .setDescription(list.map((w,n) => `**${n+1}.** ${w.reason}\n> <@${w.by}> • <t:${Math.floor(new Date(w.date).getTime()/1000)}:R>`).join("\n\n"))
+        .setFooter({ text: `Ukupno: ${list.length} • GIANNI Bot` }).setTimestamp()] });
+      return true;
+    }
+
+    // ── .clearwarn ───────────────────────────────────────────────────────────
+    if (cmd === "clearwarn") {
+      if (!isOwner(msg.author.id) && !isAdmin(msg.member)) {
+        await msg.reply({ embeds: [mkErr("Zabranjen pristup","Samo admini mogu brisati upozorenja.")] }); return true;
+      }
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply({ embeds: [mkErr("Greška","`.clearwarn @korisnik`")] }); return true; }
+      warningStore.delete(`${msg.guild?.id}:${target.id}`);
+      await msg.reply({ embeds: [mkOk("Obrisano",`Sva upozorenja za **${target.displayName}** su obrisana.`)] });
+      return true;
+    }
+
+    // ── .ship ─────────────────────────────────────────────────────────────────
+    if (cmd === "ship") {
+      const users = msg.mentions.users;
+      const [u1, u2] = users.size>=2 ? [...users.values()] : [msg.author, users.first()];
+      if (!u1||!u2) { await msg.reply("`Koristi: .ship @a @b`"); return true; }
+      const p = shipPct(u1.id, u2.id);
+      const name = (u1.globalName??u1.username).slice(0,3)+(u2.globalName??u2.username).slice(-3);
+      await msg.channel.send({ embeds: [new EmbedBuilder().setColor(C.PINK).setTitle(`💘 Ship: ${name}`)
+        .setDescription(`**${u1.displayName}** 💕 **${u2.displayName}**\n\n${heartBar(p)}\n\n**${p}%** kompatibilnosti\n*${shipLabel(p)}*`)
+        .setThumbnail(u1.displayAvatarURL()).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .love ─────────────────────────────────────────────────────────────────
+    if (cmd === "love") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .love @korisnik`"); return true; }
+      const p = lovePct(msg.author.id, target.id);
+      await msg.channel.send({ embeds: [new EmbedBuilder().setColor(C.PINK).setTitle("❤️ Love Metar")
+        .setDescription(`**${msg.author.displayName}** ❤️ **${target.displayName}**\n\n${heartBar(p)}\n\n**${p}%** ljubavi`)
+        .setThumbnail(target.displayAvatarURL()).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .marry ────────────────────────────────────────────────────────────────
+    if (cmd === "marry") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .marry @korisnik`"); return true; }
+      if (target.id===msg.author.id) { await msg.reply("❌ Ne možeš se vjenčati sam/a!"); return true; }
+      if (MARRIAGES.get(msg.author.id)) { await msg.reply("❌ Već si u braku! Koristi `.divorce`"); return true; }
+      if (MARRIAGES.get(target.id)) { await msg.reply(`❌ **${target.displayName}** je već u braku!`); return true; }
+      MARRIAGES.set(msg.author.id, target.id); MARRIAGES.set(target.id, msg.author.id);
+      const gif = await fetchGif("kiss");
+      const e = new EmbedBuilder().setColor(C.GOLD).setTitle("💍 Vjenčanje!")
+        .setDescription(`🎊 **${msg.author.displayName}** i **${target.displayName}** su sada **u braku**!\n\n> Čestitamo! 💒\n*Koristi \`.divorce\` za razvod.*`)
+        .setThumbnail(target.displayAvatarURL()).setTimestamp().setFooter({ text: FOOTER });
+      if (gif) e.setImage(gif);
+      await msg.channel.send({ embeds: [e] });
+      return true;
+    }
+
+    // ── .divorce ──────────────────────────────────────────────────────────────
+    if (cmd === "divorce") {
+      const pid = MARRIAGES.get(msg.author.id);
+      if (!pid) { await msg.reply("❌ Nisi u braku!"); return true; }
+      MARRIAGES.delete(msg.author.id); MARRIAGES.delete(pid);
+      await msg.channel.send({ embeds: [mkErr("💔 Razvod", `**${msg.author.displayName}** je zatražio/la razvod. Brak je završen. 🕊️`)] });
+      return true;
+    }
+
+    // ── .partner ──────────────────────────────────────────────────────────────
+    if (cmd === "partner") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const pid = MARRIAGES.get(target.id);
+      if (!pid) { await msg.channel.send({ embeds: [mkInfo("Bračni status", `**${target.displayName}** nije u braku.`)] }); return true; }
+      try {
+        const partner = await client.users.fetch(pid);
+        await msg.reply({ embeds: [new EmbedBuilder().setColor(C.GOLD).setTitle("💍 Bračni status")
+          .setDescription(`**${target.displayName}** je u braku sa **${partner.displayName}**! 💒`)
+          .setThumbnail(partner.displayAvatarURL()).setTimestamp().setFooter({ text: FOOTER })] });
+      } catch { await msg.reply("❌ Greška."); }
+      return true;
+    }
+
+    // ── .fuck (SFW — roast) ───────────────────────────────────────────────────
+    if (cmd === "fuck") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .fuck @korisnik`"); return true; }
+      await msg.channel.send({ embeds: [new EmbedBuilder().setColor(C.ORANGE).setTitle("🚀 Odleti!")
+        .setDescription(`**${msg.author.displayName}** šalje **${target.displayName}** na put!\n\n> **${target.displayName}** ${pick(ROASTS)}`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .fucknsfw (NSFW GIF) ──────────────────────────────────────────────────
+    if (cmd === "fucknsfw") {
+      if (!await requireNsfw(msg)) return true;
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .fucknsfw @korisnik`"); return true; }
+      const gif = await fetchGif(GIF_NSFW.fuck);
+      const e = new EmbedBuilder().setColor(C.RED)
+        .setDescription(`🔞 **${msg.author.displayName}** → **${target.displayName}**`)
+        .setTimestamp().setFooter({ text: "🔞 NSFW • GIANNI Bot" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .daddy ────────────────────────────────────────────────────────────────
+    if (cmd === "daddy") {
+      if (!await requireNsfw(msg)) return true;
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .daddy @korisnik`"); return true; }
+      const gif = await fetchGif(GIF_NSFW.daddy);
+      const e = new EmbedBuilder().setColor(0x1a0a2e)
+        .setTitle("😈 Daddy")
+        .setDescription(`**${target.displayName}** — *"Yes, daddy..."* 😈\n*${msg.author.displayName} je boss!*`)
+        .setTimestamp().setFooter({ text: "🔞 NSFW • GIANNI Bot" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .mommy ────────────────────────────────────────────────────────────────
+    if (cmd === "mommy") {
+      if (!await requireNsfw(msg)) return true;
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .mommy @korisnik`"); return true; }
+      const gif = await fetchGif(GIF_NSFW.mommy);
+      const e = new EmbedBuilder().setColor(0x2e0a1a)
+        .setTitle("💋 Mommy")
+        .setDescription(`**${target.displayName}** — *"Mommy? Yes..."* 💋\n*${msg.author.displayName} je potpuno podređen/a!*`)
+        .setTimestamp().setFooter({ text: "🔞 NSFW • GIANNI Bot" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .lovecmds ─────────────────────────────────────────────────────────────
+    if (cmd === "lovecmds" || cmd === "lovehelp") {
+      await msg.channel.send({ embeds: [new EmbedBuilder().setColor(C.PINK).setTitle("💕 Love komande")
+        .addFields(
+          { name: "💘 Ljubav",       value: "`.ship @a @b` `.love @a` `.marry @a` `.divorce` `.partner` `.tinder [@a]`", inline: false },
+          { name: "🤗 SFW (sa GIF)", value: "`.hug` `.kiss` `.pat` `.cuddle` `.blush` `.smile` `.feed` `.wave` `.slap` `.poke` `.bite` `.lick` `.stare` `.highfive` `.dance` `.cry` `.wink` `.nod` `.sleep` `.laugh` `.shrug`", inline: false },
+          { name: "🔞 NSFW (nsfw kanal)", value: "`.fucknsfw @a` `.daddy @a` `.mommy @a`", inline: false },
+          { name: "😂 Roast",        value: "`.fuck @a`", inline: false }
+        ).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── Social actions with SFW GIF ───────────────────────────────────────────
+    const def = SOCIAL[cmd];
+    if (def) {
+      const target     = msg.mentions.users.first();
+      const needTarget = !def.solo;
+      if (!target && needTarget) {
+        await msg.reply({ embeds: [new EmbedBuilder().setColor(def.color).setDescription(`${def.emoji} Moraš označiti nekoga! \`.${cmd} @korisnik\``)] });
+        return true;
+      }
+      const pool = (!target && def.solo) ? def.solo : def.lines;
+      const text = fmt(pick(pool), msg.author, target ?? undefined);
+      const gif  = await fetchGif(GIF_SFW[cmd] ?? cmd);
+      const e = new EmbedBuilder().setColor(def.color).setDescription(text)
+        .setTimestamp().setFooter({ text: FOOTER });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+  } catch (e) { logger.error({ err: e, cmd }, "Dot command error"); }
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  SLASH COMMANDS (kept for Discord menu UX)
+// ═══════════════════════════════════════════════════════════════════════════════
+const slashCommands = [
+  {
+    data: new SlashCommandBuilder().setName("events").setDescription("📅 Prikaži predstojeće događaje"),
+    async execute(i) {
+      if (!i.guild) { await i.reply({ embeds: [mkErr("Greška","Samo na serverima.")], ephemeral: true }); return; }
+      await i.deferReply();
+      try {
+        const evs = (await i.guild.scheduledEvents.fetch())
+          .filter(e => e.status===GuildScheduledEventStatus.Scheduled||e.status===GuildScheduledEventStatus.Active)
+          .map(e => ({ name: e.name, startTime: e.scheduledStartAt??new Date(), endTime: e.scheduledEndAt??null, location: e.entityMetadata?.location??(e.channel?`#${e.channel.name}`:"Discord"), userCount: e.userCount }))
+          .sort((a,b) => a.startTime-b.startTime);
+        if (!evs.length) { await i.editReply({ embeds: [mkInfo("Nema događaja","Nema zakazanih događaja.")] }); return; }
+        const embed = new EmbedBuilder().setColor(C.BLUE).setTitle(`📅 Događaji — ${i.guild.name}`)
+          .setDescription(evs.slice(0,8).map(e => `> 🎪 **${e.name}**\n> 🗓️ <t:${Math.floor(e.startTime.getTime()/1000)}:F> • 📍 ${e.location}${e.userCount!=null?` • 👥 ${e.userCount}`:""}`).join("\n\n"))
+          .setTimestamp().setFooter({ text: FOOTER });
+        await i.editReply({ embeds: [embed] });
+      } catch { await i.editReply({ embeds: [mkErr("Greška","Provjeri dozvole bota.")] }); }
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("gws").setDescription("🎉 Giveaway")
+      .addSubcommand(s=>s.setName("create").setDescription("Pokreni giveaway")
+        .addStringOption(o=>o.setName("nagrada").setDescription("Nagrada").setRequired(true))
+        .addIntegerOption(o=>o.setName("trajanje").setDescription("Minute").setMinValue(1).setMaxValue(43200).setRequired(true))
+        .addIntegerOption(o=>o.setName("pobjednici").setDescription("Broj pobjednika").setMinValue(1).setMaxValue(20)))
+      .addSubcommand(s=>s.setName("end").setDescription("Završi giveaway").addStringOption(o=>o.setName("message_id").setDescription("ID poruke").setRequired(true)))
+      .addSubcommand(s=>s.setName("reroll").setDescription("Reroll").addStringOption(o=>o.setName("message_id").setDescription("ID poruke").setRequired(true))),
+    async execute(i) {
+      if (!i.guild) { await i.reply({ embeds: [mkErr("Greška","Samo na serverima.")], ephemeral: true }); return; }
+      const sub = i.options.getSubcommand();
+      if (sub==="create") {
+        if (i.channel?.type!==ChannelType.GuildText) return;
+        const prize=i.options.getString("nagrada",true), mins=i.options.getInteger("trajanje",true), winners=i.options.getInteger("pobjednici")??1;
+        const endTime=new Date(Date.now()+mins*60_000), ts=Math.floor(endTime.getTime()/1000);
+        await i.reply({ embeds: [mkOk("Pokrenut!",`Giveaway za **${prize}** počeo!`)], ephemeral: true });
+        const gMsg=await i.channel.send({ embeds: [new EmbedBuilder().setColor(C.PINK).setTitle("🎉 GIVEAWAY 🎉")
+          .setDescription(`## ${prize}\n\n> Reaguj sa 🎉!\n\n⏰ **Završava:** <t:${ts}:R>\n🏆 **Pobjednika:** ${winners}\n🎊 ${i.user}`)
+          .setTimestamp(endTime).setFooter({ text: "🎁 Završava se" })] });
+        await gMsg.react("🎉");
+        const g={messageId:gMsg.id,channelId:gMsg.channelId,guildId:i.guild.id,prize,winners,endTime,ended:false};
+        activeGiveaways.set(gMsg.id,g);
+        setTimeout(async()=>{ const curr=activeGiveaways.get(gMsg.id); if(!curr||curr.ended)return; await endGiveaway(curr,i.channel); },mins*60_000);
+      }
+      if (sub==="end") {
+        const mid=i.options.getString("message_id",true), g=activeGiveaways.get(mid);
+        if (!g||g.ended) { await i.reply({ embeds: [mkErr("Nije pronađen","Giveaway ne postoji.")], ephemeral: true }); return; }
+        if (i.channel?.type!==ChannelType.GuildText) return;
+        await i.deferReply({ ephemeral: true });
+        await endGiveaway(g,i.channel); await i.editReply({ embeds: [mkOk("Završen",`Giveaway za **${g.prize}**.`)] });
+      }
+      if (sub==="reroll") {
+        const mid=i.options.getString("message_id",true), g=activeGiveaways.get(mid);
+        if (!g) { await i.reply({ embeds: [mkErr("Nije pronađen","Giveaway ne postoji.")], ephemeral: true }); return; }
+        if (i.channel?.type!==ChannelType.GuildText) return;
+        await i.deferReply({ ephemeral: true });
+        try {
+          const gMsg=await i.channel.messages.fetch(mid), wins=await pickGwWinners(gMsg,g.winners);
+          const wText=wins.length>0?wins.map(w=>`<@${w}>`).join(", "):"Nema pobjednika";
+          await i.channel.send({ embeds: [mkOk("🔄 Reroll",`**${g.prize}** — Novi pobjednici: ${wText}`)] });
+          await i.editReply({ embeds: [mkOk("Reroll završen","Novi pobjednici odabrani!")] });
+        } catch { await i.editReply({ embeds: [mkErr("Greška","Nije moguće učitati poruku.")] }); }
+      }
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("dm-aktive").setDescription("📨 [Owner] DM svim članovima")
+      .addStringOption(o=>o.setName("poruka").setDescription("Poruka").setRequired(true)),
+    async execute(i) {
+      if (i.user.id!==OWNER_ID) { await i.reply({ embeds: [mkErr("Zabranjen pristup","Samo vlasnik!")], ephemeral: true }); return; }
+      if (!i.guild) return;
+      await i.deferReply({ ephemeral: true });
+      const poruka=i.options.getString("poruka",true);
+      const members=await i.guild.members.fetch(), targets=members.filter(m=>!m.user.bot);
+      let sent=0,failed=0;
+      const dmEmbed=new EmbedBuilder().setColor(C.BLUE).setTitle(`📨 Poruka od **${i.guild.name}**`).setDescription(poruka).setThumbnail(i.guild.iconURL()??null).addFields({name:"📌 Server",value:i.guild.name,inline:true},{name:"👑 Poslao/la",value:i.user.globalName??i.user.username,inline:true}).setTimestamp().setFooter({text:`📨 ${i.guild.name} • GIANNI Bot`});
+      for(const[,member]of targets){try{await member.user.send({embeds:[dmEmbed]});sent++;}catch{failed++;}await new Promise(r=>setTimeout(r,500));}
+      await i.editReply({ embeds: [mkOk("DM-Aktive završen",`✅ Poslano: **${sent}**\n❌ Neuspješno: **${failed}**\n📨 Ukupno: **${targets.size}**`)] });
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("wordle").setDescription("🟩 Wordle igra")
+      .addSubcommand(s=>s.setName("set-channel").setDescription("Postavi kanal").addChannelOption(o=>o.setName("kanal").setDescription("Kanal").setRequired(true)))
+      .addSubcommand(s=>s.setName("start").setDescription("Pokreni partiju"))
+      .addSubcommand(s=>s.setName("stop").setDescription("Prekini partiju")),
+    async execute(i) {
+      if (!i.guild) return;
+      const sub=i.options.getSubcommand();
+      if (sub==="set-channel") { const ch=i.options.getChannel("kanal",true); wordleChannels.set(i.guild.id,ch.id); await i.reply({ embeds: [mkOk("Wordle kanal postavljen",`🟩 Wordle u ${ch}!\nPiši 5-slovna slova direktno u kanal!`)] }); return; }
+      if (sub==="start") { const chId=wordleChannels.get(i.guild.id); if(!chId){await i.reply({embeds:[mkWarn("Kanal nije postavljen","`.wordle set-channel #kanal`")],ephemeral:true});return;} wordleGames.set(chId,{word:WORDS[Math.floor(Math.random()*WORDS.length)],guesses:[],maxGuesses:6}); await i.reply({embeds:[mkOk("🟩 Wordle — Nova partija!","⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n⬜⬜⬜⬜⬜\n\nUkucaj 5-slovna engleska slova direktno u kanal!")]}); return; }
+      if (sub==="stop") { const chId=wordleChannels.get(i.guild.id); if(chId)wordleGames.delete(chId); await i.reply({embeds:[mkInfo("Wordle zaustavljen","Partija prekinuta.")]}); }
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("serverinfo").setDescription("🏰 Informacije o serveru"),
+    async execute(i) {
+      if (!i.guild){await i.reply({embeds:[mkErr("Greška","Samo na serverima.")],ephemeral:true});return;}
+      const g=await i.guild.fetch();
+      await i.reply({embeds:[new EmbedBuilder().setColor(C.GOLD).setTitle(`🏰 ${g.name}`).setThumbnail(g.iconURL({size:256})??null)
+        .addFields({name:"👑 Vlasnik",value:`<@${g.ownerId}>`,inline:true},{name:"👥 Članovi",value:`${g.memberCount}`,inline:true},{name:"📅 Kreiran",value:`<t:${Math.floor(g.createdTimestamp/1000)}:D>`,inline:true},{name:"💬 Kanali",value:`${g.channels.cache.size}`,inline:true},{name:"🎭 Uloge",value:`${g.roles.cache.size}`,inline:true},{name:"🆔 ID",value:`\`${g.id}\``,inline:true})
+        .setImage(g.bannerURL({size:1024})??null).setTimestamp().setFooter({text:FOOTER})]});
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("userinfo").setDescription("👤 Informacije o korisniku").addUserOption(o=>o.setName("korisnik").setDescription("Korisnik")),
+    async execute(i) {
+      const target=i.options.getMember("korisnik")??i.member, user=target instanceof GuildMember?target.user:i.user, member=target instanceof GuildMember?target:null;
+      const roles=member?.roles.cache.filter(r=>r.id!==i.guild?.id).sort((a,b)=>b.position-a.position).map(r=>`${r}`).slice(0,10).join(" ")||"Nema";
+      await i.reply({embeds:[new EmbedBuilder().setColor(member?.displayColor||C.BLUE).setTitle(`👤 ${user.globalName??user.username}`).setThumbnail(user.displayAvatarURL({size:256}))
+        .addFields({name:"🏷️ Tag",value:`\`${user.tag}\``,inline:true},{name:"🆔 ID",value:`\`${user.id}\``,inline:true},{name:"🤖 Bot",value:user.bot?"Da":"Ne",inline:true},{name:"📅 Na Discordu od",value:`<t:${Math.floor(user.createdTimestamp/1000)}:D>`,inline:true},...(member?.joinedTimestamp?[{name:"📥 Pridružen",value:`<t:${Math.floor(member.joinedTimestamp/1000)}:D>`,inline:true}]:[]),{name:"🎭 Uloge",value:roles,inline:false})
+        .setTimestamp().setFooter({text:FOOTER})]});
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("warn").setDescription("⚠️ Upozori korisnika").setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+      .addUserOption(o=>o.setName("korisnik").setDescription("Korisnik").setRequired(true))
+      .addStringOption(o=>o.setName("razlog").setDescription("Razlog").setRequired(true)),
+    async execute(i) {
+      if (!i.guild) return;
+      if (!isOwner(i.user.id)&&!isMod(i.member)&&!isAdmin(i.member)) { await i.reply({embeds:[mkErr("Zabranjen pristup","Samo moderatori!")],ephemeral:true}); return; }
+      const target=i.options.getMember("korisnik"), reason=i.options.getString("razlog",true);
+      if (!target||!(target instanceof GuildMember)){await i.reply({embeds:[mkErr("Greška","Korisnik nije pronađen.")],ephemeral:true});return;}
+      const cooldownMins=checkWarnCooldown(i.guild.id,target.id);
+      if (cooldownMins!==null){await i.reply({embeds:[mkWarn("Cooldown",`Možeš upozoriti opet za **${cooldownMins} min**! ⏰`)],ephemeral:true});return;}
+      const key=`${i.guild.id}:${target.id}`, list=warningStore.get(key)??[];
+      list.push({reason,by:i.user.id,date:new Date().toISOString()}); warningStore.set(key,list); warnCooldowns.set(key,Date.now());
+      await i.reply({embeds:[new EmbedBuilder().setColor(C.YELLOW).setTitle("⚠️ Upozorenje").setThumbnail(target.user.displayAvatarURL())
+        .addFields({name:"👤 Korisnik",value:`${target}`,inline:true},{name:"👮 Moderator",value:`${i.user}`,inline:true},{name:"📝 Razlog",value:reason,inline:false},{name:"📊 Ukupno",value:`**${list.length}**`,inline:true},{name:"⏰ Sljedeće",value:"za 1 sat",inline:true})
+        .setTimestamp().setFooter({text:FOOTER})]});
+      target.user.send({embeds:[new EmbedBuilder().setColor(C.YELLOW).setTitle(`⚠️ Upozorenje — ${i.guild.name}`).setDescription(`**Razlog:** ${reason}\n**Moderator:** ${i.user.globalName??i.user.username}\n*Ukupno: **${list.length}***`).setTimestamp().setFooter({text:FOOTER})]}).catch(()=>{});
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("warnings").setDescription("📋 Upozorenja korisnika").setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers).addUserOption(o=>o.setName("korisnik").setDescription("Korisnik").setRequired(true)),
+    async execute(i) {
+      if (!i.guild) return;
+      const target=i.options.getUser("korisnik",true), list=warningStore.get(`${i.guild.id}:${target.id}`)??[];
+      if (!list.length){await i.reply({embeds:[mkInfo("Nema upozorenja",`**${target.displayName}** nema upozorenja.`)]});return;}
+      await i.reply({embeds:[new EmbedBuilder().setColor(C.YELLOW).setTitle(`⚠️ Upozorenja — ${target.displayName}`).setThumbnail(target.displayAvatarURL())
+        .setDescription(list.map((w,n)=>`**${n+1}.** ${w.reason}\n> <@${w.by}> • <t:${Math.floor(new Date(w.date).getTime()/1000)}:R>`).join("\n\n"))
+        .setFooter({text:`Ukupno: ${list.length} • GIANNI Bot`}).setTimestamp()]});
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("clearwarn").setDescription("🧹 Obriši upozorenja").setDefaultMemberPermissions(PermissionFlagsBits.Administrator).addUserOption(o=>o.setName("korisnik").setDescription("Korisnik").setRequired(true)),
+    async execute(i) {
+      if (!i.guild) return;
+      const target=i.options.getUser("korisnik",true);
+      warningStore.delete(`${i.guild.id}:${target.id}`);
+      await i.reply({embeds:[mkOk("Obrisano",`Sva upozorenja za **${target.displayName}** su obrisana.`)]});
+    }
+  },
+  {
+    data: new SlashCommandBuilder().setName("tinder").setDescription("💘 Tinder match sistem").addUserOption(o=>o.setName("korisnik").setDescription("Koga swipeaš?")),
+    async execute(i) {
+      const target=i.options.getUser("korisnik")??i.user;
+      const pct=lovePct(i.user.id,target.id), isMatch=pct>=50;
+      const gif=await fetchGif(isMatch?pick(["kiss","hug","cuddle"]):pick(["cry","nope","sleep"]));
+      const e=new EmbedBuilder().setColor(isMatch?C.GREEN:C.RED).setTitle(isMatch?"💚 IT'S A MATCH!":"💔 NO MATCH")
+        .setDescription(isMatch?`### ${i.user.displayName} 💚 ${target.displayName}\n\n> **MATCH!** 🎉 Kompatibilnost: **${pct}%**\n> Swipe right! 💘`:`### ${i.user.displayName} 💔 ${target.displayName}\n\n> **NO MATCH** 😬 Kompatibilnost: **${pct}%**\n> Swipe left... 💀`)
+        .setThumbnail(isMatch?target.displayAvatarURL():i.user.displayAvatarURL()).setTimestamp().setFooter({text:"💘 Tinder • GIANNI Bot"});
+      if (gif) e.setImage(gif);
+      await i.reply({embeds:[e]});
+    }
+  }
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  BOT STARTUP
+// ═══════════════════════════════════════════════════════════════════════════════
 async function startBot() {
   const token = process.env["DISCORD_TOKEN"];
-  if (!token) {
-    logger.warn("DISCORD_TOKEN not set \u2014 bot will not start");
-    return;
-  }
+  if (!token) { logger.warn("DISCORD_TOKEN nije postavljen."); return; }
+
   const client = new Client({
     intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMembers,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMessageReactions,
-      GatewayIntentBits.GuildScheduledEvents
+      GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers,
+      GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent,
+      GatewayIntentBits.GuildMessageReactions, GatewayIntentBits.GuildScheduledEvents
     ]
   });
-  registerAntiRaid(client);
-  registerAntiInvite(client);
-  registerLoveCommands(client);
-  client.once("ready", async (readyClient) => {
-    logger.info({ tag: readyClient.user.tag }, "Discord bot ready");
-    readyClient.user.setPresence({
-      activities: [
-        {
-          name: "\u{1F6E1}\uFE0F Server za\u0161tita aktivna",
-          type: ActivityType.Watching
-        }
-      ],
-      status: "online"
-    });
-    const rest = new REST().setToken(token);
-    const commandData = commands.map((c) => c.data.toJSON());
-    try {
-      await rest.put(Routes.applicationCommands(readyClient.user.id), {
-        body: commandData
-      });
-      logger.info("Slash commands registered globally");
-    } catch (err) {
-      logger.error({ err }, "Failed to register slash commands");
+
+  // ── Anti-Raid ──────────────────────────────────────────────────────────────
+  client.on("guildMemberAdd", async member => {
+    const gid = member.guild.id;
+    if (lockdownGuilds.has(gid)) return;
+    const now  = Date.now();
+    const prev = (recentJoins.get(gid)??[]).filter(t=>now-t<JOIN_WINDOW_MS);
+    prev.push(now); recentJoins.set(gid, prev);
+    if (prev.length >= JOIN_THRESHOLD) await activateLockdown(member);
+  });
+
+  // ── Anti-Invite + All dot commands ────────────────────────────────────────
+  client.on("messageCreate", async msg => {
+    if (msg.author.bot) return;
+
+    // Anti-invite check
+    if (msg.guild && msg.channel.type === ChannelType.GuildText && !msg.member?.permissions.has("ManageGuild")) {
+      if (INVITE_RE.test(msg.content)) {
+        INVITE_RE.lastIndex = 0;
+        try { await msg.delete(); } catch { INVITE_RE.lastIndex = 0; return; }
+        msg.channel.send({ content: `${msg.author} ⚠️ Invite linkovi nisu dozvoljeni!`, embeds: [new EmbedBuilder()
+          .setColor(C.ORANGE).setTitle("🔗 Invite Link Blokiran")
+          .setDescription(`> **${msg.author.globalName??msg.author.username}** je pokušao/la poslati invite link.`)
+          .setTimestamp().setFooter({ text: FOOTER })] }).catch(()=>{});
+        return;
+      }
+      INVITE_RE.lastIndex = 0;
     }
-    for (const guild of readyClient.guilds.cache.values()) {
-      try {
-        const systemChannel = guild.systemChannel;
-        if (systemChannel) {
-          await systemChannel.send({
-            embeds: [
-              successEmbed(
-                "\u{1F6E1}\uFE0F Guardian Bot je online!",
-                `Bot je uspje\u0161no pokrenut i spreman za za\u0161titu servera **${guild.name}**!
 
-**Aktivirani sistemi:**
-> \u{1F6A8} **Anti-Raid** \u2014 automatska za\u0161tita od mass join napada
-> \u{1F517} **Anti-Invite** \u2014 blokiranje invite linkova u chatovima
-> \u{1F4C5} \`/events\` \u2014 pregled serverskih doga\u0111aja
-> \u{1F389} \`/gws\` \u2014 giveaway sistem (create / end / reroll)
-
-*Svi sistemi su aktivni i rade u realnom vremenu.*`
-              )
-            ]
-          });
+    // Wordle (passive listener)
+    if (msg.guild) {
+      const chId = wordleChannels.get(msg.guild.id);
+      if (chId && msg.channel.id === chId) {
+        const guess = msg.content.trim().toUpperCase();
+        if (/^[A-Z]{5}$/.test(guess)) {
+          let game = wordleGames.get(chId);
+          if (!game || (game.guesses.length>0 && game.guesses[game.guesses.length-1]===game.word)) {
+            game = { word: WORDS[Math.floor(Math.random()*WORDS.length)], guesses: [], maxGuesses: 6 };
+            wordleGames.set(chId, game);
+          }
+          game.guesses.push(guess);
+          const won  = guess===game.word;
+          const lost = !won && game.guesses.length>=game.maxGuesses;
+          const extra = won
+            ? `> 🎉 Bravo **${msg.author.displayName}**! Pogodio/la si za **${game.guesses.length}** pokušaja!`
+            : lost ? `> 💀 Nisi pogodio/la. Bolje sreće sljedeći put!` : "";
+          await msg.reply({ embeds: [wordleEmbed(game, extra)] });
+          if (won||lost) wordleGames.delete(chId);
+          return;
         }
-      } catch {
       }
     }
+
+    // All dot commands
+    if (msg.content.startsWith(PREFIX)) {
+      await handleDotCommand(msg, client);
+    }
   });
-  client.on("interactionCreate", async (interaction) => {
+
+  // ── Slash commands ────────────────────────────────────────────────────────
+  client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const command = commands.find((c) => c.data.name === interaction.commandName);
-    if (!command) return;
+    const cmd = slashCommands.find(c => c.data.name===interaction.commandName);
+    if (!cmd) return;
+    try { await cmd.execute(interaction); }
+    catch (e) {
+      logger.error({ err: e, command: interaction.commandName }, "Slash command error");
+      const payload = { content: "❌ Greška. Pokušaj ponovo.", ephemeral: true };
+      if (interaction.replied||interaction.deferred) await interaction.followUp(payload).catch(()=>{});
+      else await interaction.reply(payload).catch(()=>{});
+    }
+  });
+
+  client.on("clientReady", async readyClient => {
+    logger.info({ tag: readyClient.user.tag }, "GIANNI Bot ready ✅");
+    readyClient.user.setPresence({ activities: [{ name: "🛡️ .help | GIANNI Bot", type: ActivityType.Watching }], status: "online" });
+
+    const rest = new REST().setToken(token);
     try {
-      await command.execute(interaction);
-    } catch (err) {
-      logger.error({ err, command: interaction.commandName }, "Command error");
-      const errorPayload = {
-        content: "\u274C Gre\u0161ka pri izvr\u0161avanju komande. Poku\u0161aj ponovo.",
-        ephemeral: true
-      };
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp(errorPayload);
-      } else {
-        await interaction.reply(errorPayload);
-      }
+      await rest.put(Routes.applicationCommands(readyClient.user.id), { body: slashCommands.map(c=>c.data.toJSON()) });
+      logger.info(`Registrovano ${slashCommands.length} slash komandi`);
+    } catch (e) { logger.error({ err: e }, "Slash command registration error"); }
+
+    for (const guild of readyClient.guilds.cache.values()) {
+      guild.systemChannel?.send({ embeds: [new EmbedBuilder().setColor(C.GREEN).setTitle("🛡️ GIANNI Bot — Online!")
+        .setDescription(
+          `Bot je online i spreman! Sve komande rade sa **\`.\`** prefiksom!\n\n` +
+          `**Piši \`.help\` za listu svih komandi!**\n\n` +
+          `> 🚨 Anti-Raid aktivno\n> 🔗 Anti-Invite aktivno\n> 💕 20+ Love komandi sa GIF-ovima\n> 🔞 NSFW komande (.daddy .mommy .fucknsfw)\n> 💘 Tinder sistem (.tinder)\n> 🟩 Wordle igra\n> ⚠️ Warn sistem sa 1h cooldown`
+        ).setThumbnail(guild.iconURL()??null).setTimestamp().setFooter({ text: "🛡️ GIANNI Bot" })] }).catch(()=>{});
     }
   });
-  client.on("error", (err) => {
-    const msg = err.message ?? String(err);
-    if (msg.includes("disallowed intents") || msg.includes("Disallowed intents")) {
-      logger.error(
-        "\u274C Privilegovani intenti nisu uklju\u010Deni! Idi na:\n   https://discord.com/developers/applications \u2192 tvoja aplikacija \u2192 Bot\n   \u2705 Uklju\u010Di: SERVER MEMBERS INTENT\n   \u2705 Uklju\u010Di: MESSAGE CONTENT INTENT\n   Zatim restart workflow."
-      );
-    } else {
-      logger.error({ err }, "Discord client error");
-    }
+
+  client.on("error", err => {
+    const m = err.message??String(err);
+    if (m.toLowerCase().includes("disallowed intents")) {
+      logger.error("⚠️ Uključi SERVER MEMBERS INTENT i MESSAGE CONTENT INTENT na discord.com/developers/applications!");
+    } else { logger.error({ err }, "Discord client error"); }
   });
-  client.on("warn", (info) => {
-    logger.warn({ info }, "Discord client warning");
-  });
-  try {
-    await client.login(token);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("disallowed intents") || msg.includes("Used disallowed")) {
-      logger.error(
-        "\n\n\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557\n\u2551  \u26A0\uFE0F  PRIVILEGOVANI INTENTI NISU UKLJU\u010CENI!           \u2551\n\u2551                                                      \u2551\n\u2551  Idi na Discord Developer Portal:                    \u2551\n\u2551  discord.com/developers/applications                 \u2551\n\u2551                                                      \u2551\n\u2551  \u2192 Tvoja aplikacija \u2192 Bot tab                       \u2551\n\u2551  \u2705 Uklju\u010Di: SERVER MEMBERS INTENT                  \u2551\n\u2551  \u2705 Uklju\u010Di: MESSAGE CONTENT INTENT                 \u2551\n\u2551                                                      \u2551\n\u2551  Sa\u010Duvaj pa restartuj ovaj workflow.                 \u2551\n\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D\n"
-      );
-    } else {
-      throw err;
-    }
+  client.on("warn", info => logger.warn({ info }, "Discord warning"));
+
+  try { await client.login(token); }
+  catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (m.toLowerCase().includes("disallowed")) logger.error("Privilegovani intenti nisu uključeni!");
+    else throw e;
   }
 }
 
-// src/index.ts
-logger.info("Starting Guardian Bot...");
-startBot().catch((err) => {
-  logger.error({ err }, "Fatal error starting bot");
-  process.exit(1);
-});
+logger.info("🛡️ Pokretanje GIANNI Bota...");
+startBot().catch(e => { logger.error({ err: e }, "Fatalna greška"); process.exit(1); });

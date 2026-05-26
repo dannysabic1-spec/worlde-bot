@@ -1,9 +1,10 @@
 {
-  "name": "guardian-bot",
+  "name": "@workspace/discord-bot",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "dev": "node bot.js"
   },
   "dependencies": {
     "discord.js": "^14.16.3",
