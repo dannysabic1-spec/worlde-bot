@@ -1,138 +1,72 @@
-# 🛡️ Guardian Bot
+# 🛡️ GIANNI Bot v2
 
-Discord bot sa kompletnim sistemima zaštite i zabave za vaš server.
+Discord bot sa prefix-om `.` — SFW love komande, fun, mod, NSFW (svi kanali), wordle, tinder, giveaway.
 
-## ✨ Funkcionalnosti
+## ⚙️ Postavljanje
 
-| Sistem | Opis |
-|--------|------|
-| 🚨 **Anti-Raid** | Automatski lockdown servera ako 5+ korisnika uđe za 10 sekundi |
-| 🔗 **Anti-Invite** | Automatsko brisanje Discord invite linkova u chatovima |
-| 📅 `/events` | Pregled predstojeće događaja na serveru |
-| 🎉 `/gws` | Giveaway sistem — create / end / reroll |
-| 💕 **Love System** | 20+ fun social komandi sa lepim embed porukama |
+### 1. Instaliraj Node.js (v18+)
 
----
-
-## 🚀 Pokretanje
-
-### 1. Kloniraj repo
-
-```bash
-git clone https://github.com/tvoj-username/guardian-bot.git
-cd guardian-bot
-```
-
-### 2. Instaliraj dependencies
-
+### 2. Instaliraj pakete
 ```bash
 npm install
 ```
 
-### 3. Napravi `.env` fajl
+### 3. Postavi token
+Napravi `.env` fajl ili postavi environment varijablu:
+```
+DISCORD_TOKEN=tvoj_bot_token_ovdje
+```
 
+### 4. Pokreni bota
 ```bash
-cp .env.example .env
-```
-
-Otvori `.env` i upiši svoj Discord token:
-
-```env
-DISCORD_TOKEN=tvoj_token_ovdje
-```
-
-### 4. Uključi Privilegovane Intente
-
-Idi na [discord.com/developers/applications](https://discord.com/developers/applications):
-- → Tvoja aplikacija → **Bot** tab
-- ✅ Uključi **SERVER MEMBERS INTENT**
-- ✅ Uključi **MESSAGE CONTENT INTENT**
-- Klikni **Save Changes**
-
-### 5. Pokreni bota
-
-```bash
-# Development (auto-reload)
-npm run dev
-
-# Production (build + start)
-npm run build
-npm start
+node bot.js
 ```
 
 ---
 
-## 💕 Love System komande
+## 📋 Sve komande
 
-| Komanda | Opis |
-|---------|------|
-| `.ship @a @b` | Kompatibilnost para (0–100%) sa heart barom |
-| `.love @a` | Love metar između tebe i nekoga |
-| `.marry @a` | Vjenčaj se (čuva se dok bot radi) |
-| `.divorce` | Razvedi se |
-| `.partner` | Provjeri ko je u braku |
-| `.hug @a` | Zagrli nekoga |
-| `.kiss @a` | Daj pusu na obraz |
-| `.pat @a` | Pomiluj po glavi |
-| `.cuddle @a` | Mazi se |
-| `.slap @a` | Ošamari |
-| `.poke @a` | Bockaj |
-| `.bite @a` | Ugrizi |
-| `.lick @a` | Poliži 😂 |
-| `.stare @a` | Bulji u nekoga |
-| `.wave @a` | Mahni nekome |
-| `.blush @a` | Zacrveni se |
-| `.smile @a` | Nasmiješi se |
-| `.highfive @a` | High five! |
-| `.feed @a` | Nahrani nekoga |
-| `.dance` / `.dance @a` | Pleši sam ili s nekim |
-| `.cry` / `.cry @a` | Plači |
-| `.fuck @a` | Pošalji nekoga u svemir 🚀 |
-| `.lovecmds` | Prikaži sve love komande |
+| Kategorija | Komande |
+|---|---|
+| 📡 **Utility** | `.ping` `.botinfo` `.avatar [@k]` `.banner [@k]` `.poll <pitanje>` |
+| 📅 **Server** | `.events` `.serverinfo` `.userinfo [@k]` `.gws create/end/reroll` |
+| 📨 **DM (owner)** | `.dmaktive <poruka>` |
+| 🟩 **Wordle** | `.wordle set <#kanal>` `.wordle start` `.wordle stop` |
+| 💘 **Zabava/Fun** | `.tinder [@k]` `.8ball <p>` `.coinflip` `.roll [N]` `.rps r/p/s` `.rate @k` `.iq @k` `.pp @k` `.simp @k` `.hack @k` `.roastme` |
+| ⚠️ **Mod** | `.warn @k` `.warnings @k` `.clearwarn @k` `.kick @k` `.ban @k` `.timeout @k <min>` `.purge <N>` `.lock` `.unlock` `.slowmode <s>` |
+| 💕 **Love/SFW** | `.ship @a @b` `.love @k` `.marry @k` `.divorce` `.partner` `.hug` `.kiss` `.pat` `.cuddle` `.blush` `.smile` `.feed` `.wave` `.slap` `.poke` `.bite` `.lick` `.stare` `.highfive` `.dance` `.cry` `.wink` `.nod` `.sleep` `.laugh` `.shrug` `.fuck` |
+| 🔞 **NSFW (svi kanali)** | `.fucknsfw @k` `.daddy @k` `.mommy @k` `.sex @k` `.blowjob @k` `.anal @k` `.cum @k` `.pussylick @k` `.handjob @k` `.solo [@k]` `.strip [@k]` `.creampie @k` `.fingering @k` `.nudes [@k]` `.threesome @k @k` `.yaoi @k` `.yuri @k` |
 
 ---
 
-## 🎉 Giveaway komande
+## 🔑 Permisije (Discord Developer Portal)
 
-| Komanda | Opis |
-|---------|------|
-| `/gws create` | Pokreni novi giveaway |
-| `/gws end` | Završi giveaway prije vremena |
-| `/gws reroll` | Rerollaj pobjednike |
+Bot treba sljedeće permisije:
+- `Send Messages`, `Embed Links`, `Read Message History`
+- `Manage Messages` (za `.purge`)
+- `Kick Members`, `Ban Members` (za mod komande)
+- `Moderate Members` (za `.timeout`)
+- `Manage Channels` (za `.lock/.unlock/.slowmode`)
+
+**Privileged Gateway Intents** (obavezno uključiti u Developer Portalu):
+- `GUILD_MEMBERS`
+- `MESSAGE_CONTENT`
 
 ---
 
-## 📁 Struktura projekta
+## 🛡️ Anti-Raid & Anti-Invite
 
+- Automatski kickuje korisnike koji šalju Discord invite linkove
+- Anti-raid sistem: lockdown pri naglom joinu više korisnika
+
+---
+
+## 📦 Zavisnosti
+
+```json
+{
+  "discord.js": "^14",
+  "pino": "^8",
+  "pino-pretty": "^11"
+}
 ```
-src/
-├── index.ts                    # Entry point
-├── lib/
-│   └── logger.ts               # Pino logger
-└── bot/
-    ├── index.ts                # Bot inicijalizacija + slash commands
-    ├── commands/
-    │   ├── events.ts           # /events slash command
-    │   └── gws.ts              # /gws slash command (giveaway)
-    ├── handlers/
-    │   ├── antiRaid.ts         # Anti-raid sistem
-    │   ├── antiInvite.ts       # Anti-invite sistem
-    │   └── loveCommands.ts     # Love & social sistem (20+ komandi)
-    └── utils/
-        ├── embeds.ts           # Discord embed helperi
-        └── colors.ts           # Boje za embeds
-```
-
----
-
-## 🔧 Zahtjevi
-
-- Node.js 18+
-- Discord bot token
-- Privilegovani intenti uključeni
-
----
-
-## 📄 Licenca
-
-MIT

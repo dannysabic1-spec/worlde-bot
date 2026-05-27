@@ -25,7 +25,7 @@ const logger = pino({
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const OWNER_ID = "829552737322270731";
-const FOOTER   = "🛡️ GIANNI Bot";
+const FOOTER   = "🛡️ GIANNI Bot v2";
 const PREFIX   = ".";
 
 const C = {
@@ -51,12 +51,52 @@ function isAdmin(member)   { return member?.permissions?.has(PermissionFlagsBits
 function isMod(member)     { return member?.permissions?.has(PermissionFlagsBits.ModerateMembers) ?? false; }
 function isNsfw(channel)   { return channel?.nsfw === true; }
 
-// ─── GIF Fetcher ─────────────────────────────────────────────────────────────
+// ─── GIF Fetcher (SFW — nekos.best) ─────────────────────────────────────────
 async function fetchGif(action) {
   try {
     const res  = await fetch(`https://nekos.best/api/v2/${action}`);
     const data = await res.json();
     return data.results?.[0]?.url ?? null;
+  } catch { return null; }
+}
+
+// ─── GIF Fetcher (NSFW — danbooru.donmai.us) ─────────────────────────────────
+const DANBOORU_TAGS = {
+  blowjob:       "animated blowjob",
+  fuck:          "animated sex",
+  anal:          "animated anal",
+  cum:           "animated cum",
+  pussylick:     "oral animated",
+  solo:          "nude animated",
+  threesome_ffm: "group_sex animated",
+  threesome_mmf: "group_sex animated",
+  threesome_fff: "animated yuri",
+  yaoi:          "animated yaoi",
+  yuri:          "animated yuri",
+  handjob:       "animated blowjob",
+  fingering:     "fingering animated",
+  strip:         "nude animated",
+  creampie:      "animated cum",
+  nudes:         "nude animated",
+};
+
+async function fetchNsfwGif(action) {
+  try {
+    const tags = DANBOORU_TAGS[action] ?? `animated ${action} -video`;
+    const page = Math.floor(Math.random() * 8) + 1;
+    const url  = `https://danbooru.donmai.us/posts.json?tags=${encodeURIComponent(tags)}&limit=40&page=${page}`;
+    const res  = await fetch(url, { headers: { "User-Agent": "GIANNI-Bot/2.0 (Discord Bot)" } });
+    const posts = await res.json();
+    if (!Array.isArray(posts) || posts.length === 0) {
+      // retry page 1 if random page had no results
+      const res2  = await fetch(`https://danbooru.donmai.us/posts.json?tags=${encodeURIComponent(tags)}&limit=40&page=1`, { headers: { "User-Agent": "GIANNI-Bot/2.0" } });
+      const posts2 = await res2.json();
+      if (!Array.isArray(posts2) || posts2.length === 0) return null;
+      const gifs2 = posts2.filter(p => p.file_url && p.file_ext === "gif");
+      return gifs2.length ? pick(gifs2).file_url : null;
+    }
+    const gifs = posts.filter(p => p.file_url && p.file_ext === "gif");
+    return gifs.length ? pick(gifs).file_url : null;
   } catch { return null; }
 }
 
@@ -91,12 +131,21 @@ async function requireMod(msg) {
   }
   return true;
 }
-async function requireNsfw(msg) {
-  if (!isNsfw(msg.channel)) {
-    await msg.reply({ embeds: [mkErr("NSFW kanal potreban", "Ova komanda se može koristiti samo u 🔞 **NSFW** kanalima!")] });
-    return false;
-  }
-  return true;
+
+// ─── NSFW kanal sistem ────────────────────────────────────────────────────────
+const NSFW_CHANNELS = new Map(); // guildId → channelId
+
+async function requireNsfwChannel(msg) {
+  if (!msg.guild) return true;
+  const setId = NSFW_CHANNELS.get(msg.guild.id);
+  if (!setId) return true; // nema postavljenog kanala → radi svuda
+  if (msg.channel.id === setId) return true;
+  const ch = msg.guild.channels.cache.get(setId);
+  await msg.reply({ embeds: [new EmbedBuilder().setColor(C.RED)
+    .setTitle("🔞 NSFW kanal potreban!")
+    .setDescription(`Ova komanda se može koristiti samo u ${ch ? `<#${setId}>` : "postavljenom NSFW kanalu"}!\n\n*Admin mijenja kanal sa: \`.nsfw set #kanal\`*`)
+    .setTimestamp().setFooter({ text: FOOTER })] });
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -341,19 +390,49 @@ async function handleDotCommand(msg, client) {
 
   try {
 
+    // ── .nsfw (set/remove/status) ─────────────────────────────────────────────
+    if (cmd === "nsfw") {
+      if (!msg.guild) { await msg.reply({ embeds: [mkErr("Greška","Samo na serverima.")] }); return true; }
+      const sub = args[1]?.toLowerCase();
+      if (sub === "set") {
+        if (!await requireMod(msg)) return true;
+        const ch = msg.mentions.channels.first();
+        if (!ch) { await msg.reply("`Koristi: .nsfw set #kanal`"); return true; }
+        NSFW_CHANNELS.set(msg.guild.id, ch.id);
+        await msg.reply({ embeds: [mkOk("🔞 NSFW kanal postavljen!", `NSFW komande sada rade **samo** u <#${ch.id}>.\nKoristi \`.nsfw remove\` da ukloniš ograničenje.`)] });
+      } else if (sub === "remove" || sub === "off") {
+        if (!await requireMod(msg)) return true;
+        NSFW_CHANNELS.delete(msg.guild.id);
+        await msg.reply({ embeds: [mkOk("✅ Ograničenje uklonjeno", "NSFW komande sada rade u **svim** kanalima.")] });
+      } else if (sub === "status") {
+        const setId = NSFW_CHANNELS.get(msg.guild.id);
+        await msg.reply({ embeds: [mkInfo("🔞 NSFW Status", setId ? `Postavljeni kanal: <#${setId}>` : "Nema ograničenja — NSFW radi u svim kanalima.")] });
+      } else {
+        await msg.reply({ embeds: [new EmbedBuilder().setColor(C.PURPLE).setTitle("🔞 NSFW Sistem")
+          .addFields(
+            { name: "`.nsfw set #kanal`",  value: "Postavi u koji kanal smiju NSFW komande", inline: false },
+            { name: "`.nsfw remove`",       value: "Ukloni ograničenje — NSFW radi svuda",    inline: false },
+            { name: "`.nsfw status`",       value: "Provjeri koji je kanal postavljen",        inline: false }
+          ).setTimestamp().setFooter({ text: FOOTER })] });
+      }
+      return true;
+    }
+
     // ── .help ────────────────────────────────────────────────────────────────
     if (cmd === "help" || cmd === "komande") {
-      const e = new EmbedBuilder().setColor(C.PURPLE).setTitle("📋 GIANNI Bot — Sve komande")
+      const e = new EmbedBuilder().setColor(C.PURPLE).setTitle("📋 GIANNI Bot v2 — Sve komande")
         .addFields(
-          { name: "🛡️ Zaštita (auto)", value: "Anti-Raid • Anti-Invite (uvijek aktivno)", inline: false },
-          { name: "📅 Server", value: "`.events` `.serverinfo` `.userinfo [@k]` `.gws create|end|reroll`", inline: false },
-          { name: "📨 DM (owner)", value: "`.dmaktive <poruka>`", inline: false },
-          { name: "🟩 Wordle", value: "`.wordle set <#kanal>` `.wordle start` `.wordle stop`", inline: false },
-          { name: "💘 Zabava", value: "`.tinder [@k]`", inline: false },
-          { name: "⚠️ Mod (mod+)", value: "`.warn @k <razlog>` `.warnings @k` `.clearwarn @k`", inline: false },
-          { name: "💕 Love (SFW)", value: "`.ship` `.love` `.marry` `.divorce` `.partner` `.hug` `.kiss` `.pat` `.cuddle` `.blush` `.smile` `.feed` `.wave` `.slap` `.poke` `.bite` `.lick` `.stare` `.highfive` `.dance` `.cry` `.wink` `.nod` `.sleep` `.laugh` `.shrug` `.fuck` (roast)", inline: false },
-          { name: "🔞 NSFW (nsfw kanali)", value: "`.fucknsfw` `.daddy` `.mommy`", inline: false }
-        ).setTimestamp().setFooter({ text: "🛡️ GIANNI Bot" });
+          { name: "🛡️ Zaštita (auto)",   value: "Anti-Raid • Anti-Invite (uvijek aktivno)", inline: false },
+          { name: "🔞 NSFW kanal (mod)",  value: "`.nsfw set #kanal` `.nsfw remove` `.nsfw status`", inline: false },
+          { name: "📡 Utility",           value: "`.ping` `.botinfo` `.avatar [@k]` `.banner [@k]` `.poll <pitanje>`", inline: false },
+          { name: "📅 Server",            value: "`.events` `.serverinfo` `.userinfo [@k]` `.gws create|end|reroll`", inline: false },
+          { name: "📨 DM (owner)",        value: "`.dmaktive <poruka>`", inline: false },
+          { name: "🟩 Wordle",            value: "`.wordle set <#kanal>` `.wordle start` `.wordle stop`", inline: false },
+          { name: "💘 Zabava",            value: "`.tinder [@k]` `.8ball <pitan.>` `.coinflip` `.roll [N]` `.rps r/p/s`\n`.rate @k` `.iq @k` `.pp @k` `.simp @k` `.hack @k` `.roastme`", inline: false },
+          { name: "⚠️ Mod (mod+)",        value: "`.warn @k <razlog>` `.warnings @k` `.clearwarn @k`\n`.kick @k` `.ban @k` `.timeout @k <min>` `.purge <N>` `.lock` `.unlock` `.slowmode <s>`", inline: false },
+          { name: "💕 Love/SFW",          value: "`.ship @a @b` `.love @k` `.marry @k` `.divorce` `.partner`\n`.hug` `.kiss` `.pat` `.cuddle` `.blush` `.smile` `.feed` `.wave`\n`.slap` `.poke` `.bite` `.lick` `.stare` `.highfive` `.dance`\n`.cry` `.wink` `.nod` `.sleep` `.laugh` `.shrug` `.fuck` (roast)", inline: false },
+          { name: "🔞 NSFW (svi kanali)", value: "`.fucknsfw @k` `.daddy @k` `.mommy @k` `.sex @k [poza]`\n`.blowjob @k` `.anal @k` `.cum @k` `.pussylick @k` `.handjob @k`\n`.solo [@k]` `.strip [@k]` `.creampie @k` `.fingering @k` `.nudes [@k]`\n`.threesome @k @k` `.yaoi @k` `.yuri @k`", inline: false }
+        ).setTimestamp().setFooter({ text: FOOTER });
       await msg.reply({ embeds: [e] });
       return true;
     }
@@ -520,9 +599,9 @@ async function handleDotCommand(msg, client) {
 
       let gif = null;
       if (isMatch) {
-        gif = await fetchGif(pick(["kiss", "hug", "cuddle"]));
+        gif = await fetchNsfwGif(pick(["blowjob", "pussylick", "fuck", "yuri"]));
       } else {
-        gif = await fetchGif(pick(["cry", "sleep", "nope"]));
+        gif = await fetchNsfwGif(pick(["cum", "solo", "anal"]));
       }
 
       const embed = new EmbedBuilder()
@@ -630,7 +709,7 @@ async function handleDotCommand(msg, client) {
       if (MARRIAGES.get(msg.author.id)) { await msg.reply("❌ Već si u braku! Koristi `.divorce`"); return true; }
       if (MARRIAGES.get(target.id)) { await msg.reply(`❌ **${target.displayName}** je već u braku!`); return true; }
       MARRIAGES.set(msg.author.id, target.id); MARRIAGES.set(target.id, msg.author.id);
-      const gif = await fetchGif("kiss");
+      const gif = await fetchNsfwGif(pick(["blowjob","pussylick","fuck","yuri"]));
       const e = new EmbedBuilder().setColor(C.GOLD).setTitle("💍 Vjenčanje!")
         .setDescription(`🎊 **${msg.author.displayName}** i **${target.displayName}** su sada **u braku**!\n\n> Čestitamo! 💒\n*Koristi \`.divorce\` za razvod.*`)
         .setThumbnail(target.displayAvatarURL()).setTimestamp().setFooter({ text: FOOTER });
@@ -662,6 +741,298 @@ async function handleDotCommand(msg, client) {
       return true;
     }
 
+    // ── .ping ─────────────────────────────────────────────────────────────────
+    if (cmd === "ping") {
+      const sent = await msg.reply({ embeds: [mkInfo("🏓 Pong!", "Računam latenciju...")] });
+      const lat = sent.createdTimestamp - msg.createdTimestamp;
+      await sent.edit({ embeds: [new EmbedBuilder().setColor(C.GREEN).setTitle("🏓 Pong!")
+        .addFields(
+          { name: "📡 Bot latencija", value: `\`${lat}ms\``, inline: true },
+          { name: "💓 API latencija", value: `\`${Math.round(client.ws.ping)}ms\``, inline: true }
+        ).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .botinfo ──────────────────────────────────────────────────────────────
+    if (cmd === "botinfo") {
+      const uptime = process.uptime();
+      const h = Math.floor(uptime/3600), m = Math.floor((uptime%3600)/60), s = Math.floor(uptime%60);
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.PURPLE).setTitle("🤖 GIANNI Bot — Info")
+        .setThumbnail(client.user.displayAvatarURL())
+        .addFields(
+          { name: "📛 Ime",        value: client.user.tag,                          inline: true },
+          { name: "🆔 ID",         value: `\`${client.user.id}\``,                  inline: true },
+          { name: "⏰ Uptime",     value: `${h}h ${m}m ${s}s`,                      inline: true },
+          { name: "🌐 Serveri",    value: `${client.guilds.cache.size}`,             inline: true },
+          { name: "👥 Korisnici",  value: `${client.users.cache.size}`,              inline: true },
+          { name: "📡 Ping",       value: `\`${Math.round(client.ws.ping)}ms\``,    inline: true },
+          { name: "💎 Verzija",    value: "v2 — GIANNI Edition",                    inline: true },
+          { name: "⚙️ Node.js",   value: process.version,                           inline: true }
+        ).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .avatar ───────────────────────────────────────────────────────────────
+    if (cmd === "avatar") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const url = target.displayAvatarURL({ size: 4096, extension: "png" });
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.BLUE).setTitle(`🖼️ Avatar — ${target.displayName}`)
+        .setImage(url).setDescription(`[PNG link](${url})`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .banner ───────────────────────────────────────────────────────────────
+    if (cmd === "banner") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const full = await client.users.fetch(target.id, { force: true });
+      const url = full.bannerURL({ size: 4096 });
+      if (!url) { await msg.reply({ embeds: [mkInfo("Nema bannera", `**${target.displayName}** nema banner.`)] }); return true; }
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.BLUE).setTitle(`🖼️ Banner — ${target.displayName}`)
+        .setImage(url).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .poll ─────────────────────────────────────────────────────────────────
+    if (cmd === "poll") {
+      const question = args.slice(1).join(" ");
+      if (!question) { await msg.reply("`Koristi: .poll <pitanje>`"); return true; }
+      const poll = await msg.channel.send({ embeds: [new EmbedBuilder().setColor(C.BLUE).setTitle("📊 Glasanje")
+        .setDescription(`**${question}**\n\n> 👍 Za\n> 👎 Protiv`)
+        .setFooter({ text: `Glasanje pokrenuo/la ${msg.author.displayName} • ${FOOTER}` }).setTimestamp()] });
+      await poll.react("👍"); await poll.react("👎");
+      return true;
+    }
+
+    // ── .8ball ────────────────────────────────────────────────────────────────
+    if (cmd === "8ball") {
+      const question = args.slice(1).join(" ");
+      if (!question) { await msg.reply("`Koristi: .8ball <pitanje>`"); return true; }
+      const answers = [
+        "✅ Da, sigurno!", "✅ Bez ikakve sumnje!", "✅ Vjerovatno da!", "✅ Izgleda dobro!",
+        "🤔 Pitaj ponovo...", "🤔 Nije sada jasno.", "🤔 Teško reći...", "🤔 Koncentriraj se i pitaj ponovo.",
+        "❌ Ne izgleda dobro.", "❌ Sumnjam.", "❌ Ne.", "❌ Definitivno ne!"
+      ];
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.PURPLE).setTitle("🎱 Magic 8 Ball")
+        .addFields({ name: "❓ Pitanje", value: question }, { name: "🎱 Odgovor", value: pick(answers) })
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .coinflip ─────────────────────────────────────────────────────────────
+    if (cmd === "coinflip" || cmd === "flip") {
+      const result = Math.random() < 0.5;
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(result ? C.GOLD : C.DARK)
+        .setTitle(result ? "🟡 GLAVA!" : "⚫ PISMO!")
+        .setDescription(result ? "Glava — pobjednička strana! 🎉" : "Pismo — lakša strana! 💨")
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .roll ─────────────────────────────────────────────────────────────────
+    if (cmd === "roll" || cmd === "dice") {
+      const sides = parseInt(args[1]) || 6;
+      if (sides < 2 || sides > 1000) { await msg.reply("`Broj stranica: 2–1000`"); return true; }
+      const result = Math.floor(Math.random() * sides) + 1;
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.CYAN).setTitle("🎲 Bacanje kockice")
+        .setDescription(`Bačena kockica od **${sides}** stranica\n\n# **${result}**`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .rps ──────────────────────────────────────────────────────────────────
+    if (cmd === "rps") {
+      const choices = { r: "✊ Kamen", p: "🖐️ Papir", s: "✌️ Škare" };
+      const wins = { r: "s", p: "r", s: "p" };
+      const userChoice = args[1]?.toLowerCase();
+      if (!choices[userChoice]) { await msg.reply("`Koristi: .rps r/p/s`"); return true; }
+      const botChoice = pick(["r", "p", "s"]);
+      const result = wins[userChoice] === botChoice ? "🏆 Pobijedio/la si!" : userChoice === botChoice ? "🤝 Neriješeno!" : "💀 Bot je pobijedio!";
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(wins[userChoice]===botChoice?C.GREEN:userChoice===botChoice?C.YELLOW:C.RED)
+        .setTitle("✊ Kamen, Papir, Škare")
+        .addFields({ name: "Tvoj izbor", value: choices[userChoice], inline: true }, { name: "Bot izbor", value: choices[botChoice], inline: true }, { name: "Rezultat", value: result, inline: false })
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .rate ─────────────────────────────────────────────────────────────────
+    if (cmd === "rate") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const pct = ((target.id + "rate").split("").reduce((a,c) => a+c.charCodeAt(0), 0) % 101 + 101) % 101;
+      const bar = "█".repeat(Math.round(pct/10)) + "░".repeat(10-Math.round(pct/10));
+      const label = pct>=90?"🌟 Savršen!":pct>=70?"😍 Odličan!":pct>=50?"😊 Dobar!":pct>=30?"😐 Prosječan!":"💀 Jadan!";
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.PINK).setTitle("⭐ Rate")
+        .setThumbnail(target.displayAvatarURL())
+        .setDescription(`**${target.displayName}**\n\n\`${bar}\` **${pct}%**\n\n*${label}*`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .iq ───────────────────────────────────────────────────────────────────
+    if (cmd === "iq") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const iq = ((target.id + "iq").split("").reduce((a,c) => a+c.charCodeAt(0), 0) % 201 + 201) % 201;
+      const label = iq>=160?"🧠 Genije!":iq>=130?"📚 Visoko!":iq>=100?"😐 Prosječno":iq>=70?"🤡 Ispod prosjeka":"🥴 Nema komentara...";
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.TEAL).setTitle("🧠 IQ Test")
+        .setThumbnail(target.displayAvatarURL())
+        .setDescription(`**${target.displayName}**\n\n**IQ: ${iq}** — *${label}*`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .pp ───────────────────────────────────────────────────────────────────
+    if (cmd === "pp") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const size = ((target.id + "pp").split("").reduce((a,c) => a+c.charCodeAt(0), 0) % 21 + 21) % 21;
+      const bar = "8" + "=".repeat(size) + "D";
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.ORANGE).setTitle("🍆 PP Size")
+        .setThumbnail(target.displayAvatarURL())
+        .setDescription(`**${target.displayName}**\n\n\`${bar}\`\n\n📏 **${size} cm**`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .simp ─────────────────────────────────────────────────────────────────
+    if (cmd === "simp") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const pct = ((target.id + "simp").split("").reduce((a,c) => a+c.charCodeAt(0), 0) % 101 + 101) % 101;
+      const label = pct>=90?"🚨 Hardcore simp!":pct>=70?"😰 Veliki simp":pct>=50?"😬 Malo simpaš":pct>=30?"🙂 Normalan":"😎 Anti-simp";
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.PINK).setTitle("💘 Simp Metar")
+        .setThumbnail(target.displayAvatarURL())
+        .setDescription(`**${target.displayName}** je **${pct}% simp**\n\n*${label}*`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .hack ─────────────────────────────────────────────────────────────────
+    if (cmd === "hack") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .hack @korisnik`"); return true; }
+      const steps = [
+        "🔍 Tražim IP adresu...",
+        "💻 Pristupam sistemu...",
+        "🔓 Zaobilazeći firewall...",
+        "📁 Preuzimam fajlove...",
+        "🔑 Kradjem lozinke...",
+      ];
+      const reply = await msg.reply({ embeds: [mkInfo("💻 Hackovanje...", `Hakovam **${target.displayName}**...`)] });
+      for (const step of steps) {
+        await new Promise(r => setTimeout(r, 700));
+        await reply.edit({ embeds: [new EmbedBuilder().setColor(C.GREEN).setTitle("💻 Hakovanje u toku...")
+          .setDescription(`Target: **${target.displayName}**\n\n\`\`\`\n${step}\n\`\`\``).setTimestamp().setFooter({ text: FOOTER })] });
+      }
+      await new Promise(r => setTimeout(r, 700));
+      const data = [`📧 Email: ${target.username}@gmail.com`, `🔑 Lozinka: ****${Math.random().toString(36).slice(2,6)}`, `📍 IP: 192.168.${Math.floor(Math.random()*255)}.${Math.floor(Math.random()*255)}`, `💳 Kartica: **** **** **** ${Math.floor(Math.random()*9999)}`];
+      await reply.edit({ embeds: [new EmbedBuilder().setColor(C.RED).setTitle("✅ Hakovanje završeno!")
+        .setDescription(`**${target.displayName}** je hakovan/a!\n\n\`\`\`\n${data.join("\n")}\n\`\`\`\n\n*⚠️ Ovo je šala!*`)
+        .setThumbnail(target.displayAvatarURL()).setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .roastme ──────────────────────────────────────────────────────────────
+    if (cmd === "roastme") {
+      const ROAST_LINES = [
+        "Izgledaš kao da te je WiFi dizajnirao.",
+        "Tvoj mozak je kao RAM od 256MB.",
+        "Imaš budućnost samo u prošlosti.",
+        "Ni ChatGPT ne želi razgovarati s tobom.",
+        "Tvoja mama te voli. Niko drugi.",
+        "Kad ulaz Googlea 'bezvrijedan', tvoj profil je thumbnail.",
+        "Jesi li ti NPC ili samo izgledaš tako?",
+        "Evolucija je napravila grešku.",
+      ];
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(C.RED).setTitle("🔥 Roast!")
+        .setDescription(`**${msg.author.displayName}**, evo ti:\n\n> *${pick(ROAST_LINES)}*`)
+        .setTimestamp().setFooter({ text: FOOTER })] });
+      return true;
+    }
+
+    // ── .kick (mod) ───────────────────────────────────────────────────────────
+    if (cmd === "kick") {
+      if (!await requireMod(msg)) return true;
+      const target = msg.mentions.members?.first();
+      const reason = args.slice(2).join(" ") || "Bez razloga";
+      if (!target) { await msg.reply({ embeds: [mkErr("Greška","`.kick @korisnik [razlog]`")] }); return true; }
+      try {
+        await target.kick(reason);
+        await msg.reply({ embeds: [mkOk("👢 Kickovan/a", `**${target.user.displayName}** je kickovan/a.\n**Razlog:** ${reason}`)] });
+      } catch { await msg.reply({ embeds: [mkErr("Greška", "Nemam dozvolu za kick ili je korisnik iznad mene.")]}) }
+      return true;
+    }
+
+    // ── .ban (mod) ────────────────────────────────────────────────────────────
+    if (cmd === "ban") {
+      if (!await requireMod(msg)) return true;
+      const target = msg.mentions.members?.first();
+      const reason = args.slice(2).join(" ") || "Bez razloga";
+      if (!target) { await msg.reply({ embeds: [mkErr("Greška","`.ban @korisnik [razlog]`")] }); return true; }
+      try {
+        await target.ban({ reason });
+        await msg.reply({ embeds: [mkOk("🔨 Banovan/a", `**${target.user.displayName}** je banovan/a.\n**Razlog:** ${reason}`)] });
+      } catch { await msg.reply({ embeds: [mkErr("Greška", "Nemam dozvolu za ban ili je korisnik iznad mene.")] }); }
+      return true;
+    }
+
+    // ── .timeout (mod) ────────────────────────────────────────────────────────
+    if (cmd === "timeout" || cmd === "mute") {
+      if (!await requireMod(msg)) return true;
+      const target = msg.mentions.members?.first();
+      const mins = parseInt(args[2]) || 5;
+      const reason = args.slice(3).join(" ") || "Bez razloga";
+      if (!target) { await msg.reply({ embeds: [mkErr("Greška","`.timeout @korisnik <minute> [razlog]`")] }); return true; }
+      try {
+        await target.timeout(mins * 60_000, reason);
+        await msg.reply({ embeds: [mkOk("⏰ Timeout", `**${target.user.displayName}** timeout **${mins} min**.\n**Razlog:** ${reason}`)] });
+      } catch { await msg.reply({ embeds: [mkErr("Greška","Nemam dozvolu za timeout.")] }); }
+      return true;
+    }
+
+    // ── .purge (mod) ──────────────────────────────────────────────────────────
+    if (cmd === "purge" || cmd === "clear") {
+      if (!await requireMod(msg)) return true;
+      const amount = parseInt(args[1]);
+      if (!amount || amount < 1 || amount > 100) { await msg.reply("`Koristi: .purge <1-100>`"); return true; }
+      try {
+        await msg.delete();
+        const deleted = await msg.channel.bulkDelete(amount, true);
+        const notice = await msg.channel.send({ embeds: [mkOk("🗑️ Poruke obrisane", `Obrisano **${deleted.size}** poruka.`)] });
+        setTimeout(() => notice.delete().catch(()=>{}), 3000);
+      } catch { await msg.reply({ embeds: [mkErr("Greška","Ne mogu obrisati poruke starije od 14 dana.")] }); }
+      return true;
+    }
+
+    // ── .lock (mod) ───────────────────────────────────────────────────────────
+    if (cmd === "lock") {
+      if (!await requireMod(msg)) return true;
+      try {
+        await msg.channel.permissionOverwrites.edit(msg.guild.roles.everyone, { SendMessages: false });
+        await msg.reply({ embeds: [mkWarn("🔒 Kanal zaključan", `**#${msg.channel.name}** je zaključan.`)] });
+      } catch { await msg.reply({ embeds: [mkErr("Greška","Nemam dozvolu za zaključavanje.")] }); }
+      return true;
+    }
+
+    // ── .unlock (mod) ─────────────────────────────────────────────────────────
+    if (cmd === "unlock") {
+      if (!await requireMod(msg)) return true;
+      try {
+        await msg.channel.permissionOverwrites.edit(msg.guild.roles.everyone, { SendMessages: null });
+        await msg.reply({ embeds: [mkOk("🔓 Kanal otključan", `**#${msg.channel.name}** je otključan.`)] });
+      } catch { await msg.reply({ embeds: [mkErr("Greška","Nemam dozvolu za otključavanje.")] }); }
+      return true;
+    }
+
+    // ── .slowmode (mod) ───────────────────────────────────────────────────────
+    if (cmd === "slowmode") {
+      if (!await requireMod(msg)) return true;
+      const secs = parseInt(args[1]) ?? 0;
+      if (secs < 0 || secs > 21600) { await msg.reply("`Koristi: .slowmode <0-21600>`"); return true; }
+      try {
+        await msg.channel.setRateLimitPerUser(secs);
+        await msg.reply({ embeds: [mkOk("🐢 Slowmode", secs===0 ? "Slowmode isključen." : `Slowmode postavljen na **${secs}s**.`)] });
+      } catch { await msg.reply({ embeds: [mkErr("Greška","Nemam dozvolu.")] }); }
+      return true;
+    }
+
     // ── .fuck (SFW — roast) ───────────────────────────────────────────────────
     if (cmd === "fuck") {
       const target = msg.mentions.users.first();
@@ -672,45 +1043,307 @@ async function handleDotCommand(msg, client) {
       return true;
     }
 
-    // ── .fucknsfw (NSFW GIF) ──────────────────────────────────────────────────
+    // ── NSFW kanal provjera (jednom za sve NSFW komande) ─────────────────────
+    const _NSFW_CMDS = new Set(["fucknsfw","daddy","mommy","sex","blowjob","anal","cum","pussylick","handjob","solo","strip","creampie","fingering","nudes","threesome","yaoi","yuri"]);
+    if (_NSFW_CMDS.has(cmd) && !await requireNsfwChannel(msg)) return true;
+
+    // ── .fucknsfw (Purrbot GIF) ───────────────────────────────────────────────
     if (cmd === "fucknsfw") {
-      if (!await requireNsfw(msg)) return true;
       const target = msg.mentions.users.first();
       if (!target) { await msg.reply("`Koristi: .fucknsfw @korisnik`"); return true; }
-      const gif = await fetchGif(GIF_NSFW.fuck);
+      const gif = await fetchNsfwGif(pick(["fuck", "anal", "cum"]));
+      const lines = [
+        `**${msg.author.displayName}** jebe **${target.displayName}**! 💦`,
+        `**${msg.author.displayName}** i **${target.displayName}** — nema zaustavljanja! 🔥`,
+        `**${target.displayName}** dobija šta zaslužuje od **${msg.author.displayName}**! 😈`,
+      ];
       const e = new EmbedBuilder().setColor(C.RED)
-        .setDescription(`🔞 **${msg.author.displayName}** → **${target.displayName}**`)
-        .setTimestamp().setFooter({ text: "🔞 NSFW • GIANNI Bot" });
+        .setTitle("🔞 Fuck")
+        .setDescription(pick(lines))
+        .setTimestamp().setFooter({ text: "🔞 GIANNI Bot v2" });
       if (gif) e.setImage(gif);
       await msg.reply({ embeds: [e] });
       return true;
     }
 
-    // ── .daddy ────────────────────────────────────────────────────────────────
+    // ── .daddy (Purrbot GIF) ──────────────────────────────────────────────────
     if (cmd === "daddy") {
-      if (!await requireNsfw(msg)) return true;
       const target = msg.mentions.users.first();
       if (!target) { await msg.reply("`Koristi: .daddy @korisnik`"); return true; }
-      const gif = await fetchGif(GIF_NSFW.daddy);
+      const gif = await fetchNsfwGif(pick(["blowjob", "pussylick", "fuck"]));
+      const lines = [
+        `**${target.displayName}** — *"Yes, daddy... 😩"*\n*${msg.author.displayName} preuzima kontrolu!*`,
+        `**${target.displayName}** ne može da odoli **${msg.author.displayName}**! 😈`,
+        `*"Daddy, please..."* — šapuće **${target.displayName}** dok **${msg.author.displayName}** vlada! 🖤`,
+      ];
       const e = new EmbedBuilder().setColor(0x1a0a2e)
         .setTitle("😈 Daddy")
-        .setDescription(`**${target.displayName}** — *"Yes, daddy..."* 😈\n*${msg.author.displayName} je boss!*`)
-        .setTimestamp().setFooter({ text: "🔞 NSFW • GIANNI Bot" });
+        .setDescription(pick(lines))
+        .setTimestamp().setFooter({ text: "😈 GIANNI Bot v2" });
       if (gif) e.setImage(gif);
       await msg.reply({ embeds: [e] });
       return true;
     }
 
-    // ── .mommy ────────────────────────────────────────────────────────────────
+    // ── .mommy (Purrbot GIF) ──────────────────────────────────────────────────
     if (cmd === "mommy") {
-      if (!await requireNsfw(msg)) return true;
       const target = msg.mentions.users.first();
       if (!target) { await msg.reply("`Koristi: .mommy @korisnik`"); return true; }
-      const gif = await fetchGif(GIF_NSFW.mommy);
+      const gif = await fetchNsfwGif(pick(["yuri", "pussylick", "solo"]));
+      const lines = [
+        `**${target.displayName}** — *"Mommy's got you... 💋"*\n*${msg.author.displayName} se potpuno predaje!*`,
+        `**${msg.author.displayName}** je u rukama **${target.displayName}**! 💋`,
+        `*"Shh, good boy/girl..."* — šapuće **${target.displayName}** dok **${msg.author.displayName}** tone! 🌹`,
+      ];
       const e = new EmbedBuilder().setColor(0x2e0a1a)
         .setTitle("💋 Mommy")
-        .setDescription(`**${target.displayName}** — *"Mommy? Yes..."* 💋\n*${msg.author.displayName} je potpuno podređen/a!*`)
-        .setTimestamp().setFooter({ text: "🔞 NSFW • GIANNI Bot" });
+        .setDescription(pick(lines))
+        .setTimestamp().setFooter({ text: "💋 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .sex (Purrbot GIF + poza) ─────────────────────────────────────────────
+    if (cmd === "sex") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .sex @korisnik [poza]`"); return true; }
+      const POZE = [
+        "misionar", "doggy style", "cowgirl", "reverse cowgirl", "spoon",
+        "standing", "lotus", "butterfly", "praying mantis", "lazy dog",
+        "chair", "bridge", "scissors", "pretzel", "wheelbarrow",
+        "spread eagle", "face-off", "69", "snow angel", "lock"
+      ];
+      const inputPoza = args.slice(2).join(" ").trim();
+      const poza = inputPoza.length > 0 ? inputPoza : pick(POZE);
+      const gif = await fetchNsfwGif(pick(["fuck", "anal", "cum", "pussylick", "threesome_ffm", "threesome_mmf"]));
+      const e = new EmbedBuilder().setColor(C.PURPLE)
+        .setTitle("💦 Sex")
+        .setDescription(
+          `**${msg.author.displayName}** i **${target.displayName}**\n\n` +
+          `> 🛏️ **Poza:** \`${poza}\`\n\n` +
+          `*Enjoy the ride! 😏🔥*`
+        )
+        .setTimestamp().setFooter({ text: "💦 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .blowjob ──────────────────────────────────────────────────────────────
+    if (cmd === "blowjob") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .blowjob @korisnik`"); return true; }
+      const gif = await fetchNsfwGif("blowjob");
+      const lines = [
+        `**${msg.author.displayName}** kleči pred **${target.displayName}**... 👄💦`,
+        `**${target.displayName}** ne može vjerovati šta mu/joj **${msg.author.displayName}** radi! 😮‍💨`,
+        `*"Mmmph..."* — **${msg.author.displayName}** i **${target.displayName}** nestaju iza zatvorenih vrata! 🚪💋`,
+      ];
+      const e = new EmbedBuilder().setColor(C.PINK).setTitle("👄 Blowjob")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "💋 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .anal ─────────────────────────────────────────────────────────────────
+    if (cmd === "anal") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .anal @korisnik`"); return true; }
+      const gif = await fetchNsfwGif("anal");
+      const lines = [
+        `**${msg.author.displayName}** juri **${target.displayName}** od pozadi! 🍑💥`,
+        `**${target.displayName}** se ne može otrgnuti od **${msg.author.displayName}**! 😩🔥`,
+        `*Deep and rough* — **${msg.author.displayName}** + **${target.displayName}** = 💦`,
+      ];
+      const e = new EmbedBuilder().setColor(C.ORANGE).setTitle("🍑 Anal")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "🔞 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .cum ──────────────────────────────────────────────────────────────────
+    if (cmd === "cum") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .cum @korisnik`"); return true; }
+      const gif = await fetchNsfwGif("cum");
+      const lines = [
+        `**${msg.author.displayName}** završava na **${target.displayName}**! 💦😏`,
+        `**${target.displayName}** je mokra/mokar zahvaljujući **${msg.author.displayName}**! 💦🔥`,
+        `*Game over.* **${msg.author.displayName}** → **${target.displayName}** 💥`,
+      ];
+      const e = new EmbedBuilder().setColor(C.CYAN).setTitle("💦 Cum")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "💦 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .pussylick ────────────────────────────────────────────────────────────
+    if (cmd === "pussylick") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .pussylick @korisnik`"); return true; }
+      const gif = await fetchNsfwGif("pussylick");
+      const lines = [
+        `**${msg.author.displayName}** se spušta prema **${target.displayName}**... 👅💧`,
+        `**${target.displayName}** se trese dok **${msg.author.displayName}** radi čuda! 😮‍💨💦`,
+        `*"Ne staj..."* — šapuće **${target.displayName}** dok **${msg.author.displayName}** liže! 👅🔥`,
+      ];
+      const e = new EmbedBuilder().setColor(C.TEAL).setTitle("👅 Pussy Lick")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "👅 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .solo ─────────────────────────────────────────────────────────────────
+    if (cmd === "solo") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const gif = await fetchNsfwGif("solo");
+      const lines = [
+        `**${target.displayName}** uživa sam/a večeras... 🙈💦`,
+        `**${target.displayName}** ne treba nikoga! Ruke su dovoljne! ✋😏`,
+        `*Lights off, hands on* — **${target.displayName}** u svom elementu! 🌙💫`,
+      ];
+      const e = new EmbedBuilder().setColor(C.PURPLE).setTitle("🙈 Solo")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "💜 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .threesome ────────────────────────────────────────────────────────────
+    if (cmd === "threesome") {
+      const users = [...msg.mentions.users.values()];
+      const u1 = users[0] ?? msg.author;
+      const u2 = users[1] ?? msg.author;
+      const gif = await fetchNsfwGif(pick(["threesome_ffm", "threesome_mmf", "threesome_fff"]));
+      const lines = [
+        `**${msg.author.displayName}**, **${u1.displayName}** i **${u2.displayName}** — trostruki problem! 🔥🔥🔥`,
+        `*Tri je bolje od dva!* — **${msg.author.displayName}** + **${u1.displayName}** + **${u2.displayName}** 💦`,
+        `Niko ne spava večeras! **${msg.author.displayName}**, **${u1.displayName}**, **${u2.displayName}** 🛏️🔥`,
+      ];
+      const e = new EmbedBuilder().setColor(C.GOLD).setTitle("🔥 Threesome")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "🔥 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .yaoi ─────────────────────────────────────────────────────────────────
+    if (cmd === "yaoi") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .yaoi @korisnik`"); return true; }
+      const gif = await fetchNsfwGif("yaoi");
+      const lines = [
+        `**${msg.author.displayName}** i **${target.displayName}** — bromance gone too far! 😳🔥`,
+        `*Boys will be boys...* — **${msg.author.displayName}** + **${target.displayName}** 💙`,
+        `**${target.displayName}** nije mogao odoljeti **${msg.author.displayName}**! 😳💦`,
+      ];
+      const e = new EmbedBuilder().setColor(C.BLUE).setTitle("💙 Yaoi")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "💙 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .yuri ─────────────────────────────────────────────────────────────────
+    if (cmd === "yuri") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .yuri @korisnik`"); return true; }
+      const gif = await fetchNsfwGif("yuri");
+      const lines = [
+        `**${msg.author.displayName}** i **${target.displayName}** — girls just wanna have fun! 🌸💕`,
+        `*Soft lips, softer touch* — **${msg.author.displayName}** + **${target.displayName}** 💗`,
+        `**${target.displayName}** se topi u rukama **${msg.author.displayName}**! 🌺💦`,
+      ];
+      const e = new EmbedBuilder().setColor(C.PINK).setTitle("🌸 Yuri")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "🌸 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .handjob ─────────────────────────────────────────────────────────────
+    if (cmd === "handjob") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .handjob @korisnik`"); return true; }
+      const gif = await fetchNsfwGif(pick(["blowjob", "cum", "fuck"]));
+      const lines = [
+        `**${msg.author.displayName}** pruža ruku **${target.displayName}**... i to rade ruke! 🤚💦`,
+        `**${target.displayName}** se prepušta rukama **${msg.author.displayName}**! 😮‍💨🔥`,
+        `*Meke ruke, tihi uzdasi...* **${msg.author.displayName}** → **${target.displayName}** 💋`,
+      ];
+      const e = new EmbedBuilder().setColor(C.ORANGE).setTitle("🤚 Handjob")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "🔞 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .strip ────────────────────────────────────────────────────────────────
+    if (cmd === "strip") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const gif = await fetchNsfwGif(pick(["solo", "fuck", "cum"]));
+      const lines = [
+        `**${target.displayName}** počinje da skida... i ne može da stane! 🔥😏`,
+        `Publika divlja dok **${target.displayName}** pleše i skida se! 💃💦`,
+        `**${target.displayName}** daje privatni nastup samo za **${msg.author.displayName}**! 😈`,
+      ];
+      const e = new EmbedBuilder().setColor(C.PINK).setTitle("💃 Strip")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "💋 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .creampie ─────────────────────────────────────────────────────────────
+    if (cmd === "creampie") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .creampie @korisnik`"); return true; }
+      const gif = await fetchNsfwGif(pick(["cum", "fuck", "anal"]));
+      const lines = [
+        `**${msg.author.displayName}** završava unutra i **${target.displayName}** se osjeća savršeno! 💦😩`,
+        `*Warm and sticky...* **${msg.author.displayName}** → **${target.displayName}** 💦🔥`,
+        `**${target.displayName}** traži još od **${msg.author.displayName}**! 😏💦`,
+      ];
+      const e = new EmbedBuilder().setColor(C.RED).setTitle("💦 Creampie")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "💦 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .fingering ────────────────────────────────────────────────────────────
+    if (cmd === "fingering") {
+      const target = msg.mentions.users.first();
+      if (!target) { await msg.reply("`Koristi: .fingering @korisnik`"); return true; }
+      const gif = await fetchNsfwGif(pick(["pussylick", "solo", "fuck"]));
+      const lines = [
+        `**${msg.author.displayName}** prstima dovodi **${target.displayName}** do ludila! 🤞💦`,
+        `**${target.displayName}** jedva diše dok **${msg.author.displayName}** radi svoje! 😮‍💨🔥`,
+        `*Prsti znaju sve pravo mjestо...* **${msg.author.displayName}** → **${target.displayName}** 💋`,
+      ];
+      const e = new EmbedBuilder().setColor(C.PURPLE).setTitle("🤞 Fingering")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "👅 GIANNI Bot v2" });
+      if (gif) e.setImage(gif);
+      await msg.reply({ embeds: [e] });
+      return true;
+    }
+
+    // ── .nudes ────────────────────────────────────────────────────────────────
+    if (cmd === "nudes") {
+      const target = msg.mentions.users.first() ?? msg.author;
+      const gif = await fetchNsfwGif(pick(["solo", "fuck", "cum", "pussylick"]));
+      const lines = [
+        `**${target.displayName}** šalje nudes i niko nije spreman! 🔥😏`,
+        `*Unboxing package from **${target.displayName}**...* 📦💦`,
+        `**${target.displayName}** to radi samo za **${msg.author.displayName}**! 😈🌹`,
+      ];
+      const e = new EmbedBuilder().setColor(C.DARK).setTitle("📸 Nudes")
+        .setDescription(pick(lines)).setTimestamp().setFooter({ text: "🔞 GIANNI Bot v2" });
       if (gif) e.setImage(gif);
       await msg.reply({ embeds: [e] });
       return true;
@@ -722,7 +1355,7 @@ async function handleDotCommand(msg, client) {
         .addFields(
           { name: "💘 Ljubav",       value: "`.ship @a @b` `.love @a` `.marry @a` `.divorce` `.partner` `.tinder [@a]`", inline: false },
           { name: "🤗 SFW (sa GIF)", value: "`.hug` `.kiss` `.pat` `.cuddle` `.blush` `.smile` `.feed` `.wave` `.slap` `.poke` `.bite` `.lick` `.stare` `.highfive` `.dance` `.cry` `.wink` `.nod` `.sleep` `.laugh` `.shrug`", inline: false },
-          { name: "🔞 NSFW (nsfw kanal)", value: "`.fucknsfw @a` `.daddy @a` `.mommy @a`", inline: false },
+          { name: "🔞 Igra (svi kanali)", value: "`.fucknsfw @a` `.daddy @a` `.mommy @a` `.sex @a [poza]`\n`.blowjob @a` `.anal @a` `.cum @a` `.pussylick @a`\n`.solo [@a]` `.threesome @a @b` `.yaoi @a` `.yuri @a`", inline: false },
           { name: "😂 Roast",        value: "`.fuck @a`", inline: false }
         ).setTimestamp().setFooter({ text: FOOTER })] });
       return true;
@@ -739,7 +1372,7 @@ async function handleDotCommand(msg, client) {
       }
       const pool = (!target && def.solo) ? def.solo : def.lines;
       const text = fmt(pick(pool), msg.author, target ?? undefined);
-      const gif  = await fetchGif(GIF_SFW[cmd] ?? cmd);
+      const gif  = await fetchNsfwGif(pick(["fuck","blowjob","pussylick","cum","anal","solo","yuri","yaoi"]));
       const e = new EmbedBuilder().setColor(def.color).setDescription(text)
         .setTimestamp().setFooter({ text: FOOTER });
       if (gif) e.setImage(gif);
@@ -910,7 +1543,7 @@ const slashCommands = [
     async execute(i) {
       const target=i.options.getUser("korisnik")??i.user;
       const pct=lovePct(i.user.id,target.id), isMatch=pct>=50;
-      const gif=await fetchGif(isMatch?pick(["kiss","hug","cuddle"]):pick(["cry","nope","sleep"]));
+      const gif=await fetchNsfwGif(isMatch?pick(["blowjob","pussylick","fuck","yuri"]):pick(["cum","solo","anal"]));
       const e=new EmbedBuilder().setColor(isMatch?C.GREEN:C.RED).setTitle(isMatch?"💚 IT'S A MATCH!":"💔 NO MATCH")
         .setDescription(isMatch?`### ${i.user.displayName} 💚 ${target.displayName}\n\n> **MATCH!** 🎉 Kompatibilnost: **${pct}%**\n> Swipe right! 💘`:`### ${i.user.displayName} 💔 ${target.displayName}\n\n> **NO MATCH** 😬 Kompatibilnost: **${pct}%**\n> Swipe left... 💀`)
         .setThumbnail(isMatch?target.displayAvatarURL():i.user.displayAvatarURL()).setTimestamp().setFooter({text:"💘 Tinder • GIANNI Bot"});
