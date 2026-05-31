@@ -97,7 +97,7 @@ export function playKWord(g: KGame, playerId: string, word: string): KResult {
 }
 
 export function kGameOver(g: KGame): boolean {
-  return g.players.length <= 1;
+  return g.players.length === 0;
 }
 
 export function kWinner(g: KGame): KPlayer | undefined {

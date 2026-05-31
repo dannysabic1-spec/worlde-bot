@@ -2,18 +2,20 @@
 
   ## Instalacija
   ```bash
-  npm install && npm run build
+  npm install
+  npm run build
   ```
 
-  ## Env varijable (.env fajl)
+  ## Env varijable
+  Kopiraj `.env.example` u `.env` i popuni:
   ```
   DISCORD_TOKEN=tvoj_token
   DISCORD_CLIENT_ID=tvoj_client_id
-  DISCORD_GUILD_ID=id_servera    <-- za INSTANT komande!
+  DISCORD_GUILD_ID=id_servera    <-- za INSTANT komande (preporučeno)
   ```
 
-  **DISCORD_GUILD_ID** = desni klik na server u Discordu → Copy Server ID  
-  (mora biti uključen Developer Mode: User Settings → Advanced → Developer Mode)
+  **DISCORD_GUILD_ID** = desni klik na server → Copy Server ID  
+  (mora biti uključen Developer Mode: Settings → Advanced → Developer Mode)
 
   ## Pokretanje
   ```bash
@@ -23,10 +25,10 @@
   ## Komande
   | Komanda | Opis |
   |---------|------|
-  | /set kaladont\|toplo-hladno\|wordle\|mafia | Poveži igru sa kanalom |
-  | /unset | Ukloni igru iz kanala |
-  | /start | Pokreni igru |
-  | /join | Pridruži se igri |
+  | /set kaladont\|toplo-hladno\|wordle\|mafia | Igra za kanal |
+  | /unset | Ukloni igru |
+  | /start | Pokreni igru odmah (bez čekanja!) |
+  | /join | Pridruži se Kaladont/Mafia igri |
   | /stop | Zaustavi igru |
   | /solo milioner\|skocko | Solo igra |
   | /rank | Rang lista |
