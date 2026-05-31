@@ -4,7 +4,7 @@ import {
   Routes,
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
 } from "discord.js";
-import { logger } from "../lib/logger.js";
+import { logger } from "./logger.js";
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder()

@@ -7,7 +7,7 @@ import {
   type Message,
   type TextChannel,
 } from "discord.js";
-import { logger } from "../lib/logger.js";
+import { logger } from "./logger.js";
 import { registerCommands } from "./commands.js";
 import { setChannelGame, unsetChannelGame, getChannelGame, GAME_NAMES, type GameType } from "./channel-config.js";
 import { getTopRankings, getUserRank, recordWin, recordGame } from "./rankings.js";
@@ -17,16 +17,16 @@ import {
   addKPlayer, currentKPlayer, eliminateKPlayer,
   playKWord, kGameOver, kWinner, pickStartWord, getLastLetters,
   type KGame,
-} from "./games/kaladont.js";
+} from "./kaladont.js";
 
 import {
   createTH, getTH, deleteTH, guessTH,
-} from "./games/toplo-hladno.js";
+} from "./toplo-hladno.js";
 
 import {
   createWordle, getWordle, deleteWordle,
   playWordle, renderBoard,
-} from "./games/wordle.js";
+} from "./wordle.js";
 
 import {
   createMafia, getMafia, deleteMafia,
@@ -34,19 +34,19 @@ import {
   nightAction, allNightActorsDone, resolveNight,
   castVote, resolveVote, checkWin,
   ROLE_EMOJI, ROLE_DESC, type MGame,
-} from "./games/mafia.js";
+} from "./mafia.js";
 
 import {
   createMilioner, getMilioner, deleteMilioner,
   getCurrentQuestion, getCurrentPrize,
   answerMilioner, useFiftyFifty, useAudience,
   formatQuestion, OPTION_LETTERS,
-} from "./games/milioner.js";
+} from "./milioner.js";
 
 import {
   createSkocko, getSkocko, deleteSkocko,
   guessSkocko, parseGuess, renderAttempts, symbolsHelp, SYMBOLS,
-} from "./games/skocko.js";
+} from "./skocko.js";
 
 const TURN_TIME = 30;
 const JOIN_TIME = 45;
