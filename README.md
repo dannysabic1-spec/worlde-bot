@@ -1,35 +1,37 @@
 # Kefalica Bot
 
-  ## Pokretanje
+  ## Instalacija
 
-  1. Instaliraj zavisnosti:
-  ```
+  ```bash
   npm install
+  npm run build
   ```
 
-  2. Napravi `.env` fajl:
+  ## Env varijable
+
+  Napravi `.env` fajl (ili postavi na hostu):
   ```
   DISCORD_TOKEN=tvoj_token
   DISCORD_CLIENT_ID=tvoj_client_id
   ```
 
-  3. Pokreni bota:
-  ```
-  node --env-file=.env --loader ts-node/esm index.ts
+  ## Pokretanje
+
+  ```bash
+  # Sa .env fajlom (lokalno)
+  node --env-file=.env dist/main.js
+
+  # Ili npm start (podesi env varijable u sistemu/hostu)
+  npm start
   ```
 
-  Ili kompajliraj pa pokreni:
-  ```
-  npm run build
-  node --env-file=.env dist/index.js
-  ```
-
-  ## Igre
-  - /set kaladont | toplo-hladno | wordle | mafia
-  - /start — pokreni igru
-  - /join — pridruži se
-  - /stop — zaustavi
-  - /solo milioner | skocko
-  - /rank — rang lista
-  - /quest — trenutni zadatak
+  ## Komande
+  - `/set kaladont|toplo-hladno|wordle|mafia` — poveži igru sa kanalom
+  - `/unset` — ukloni igru
+  - `/start` — pokreni igru
+  - `/join` — pridruži se
+  - `/stop` — zaustavi
+  - `/solo milioner|skocko` — solo igre
+  - `/rank` — rang lista
+  - `/quest` — trenutni zadatak
   
