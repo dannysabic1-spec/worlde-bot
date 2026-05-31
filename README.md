@@ -9,20 +9,21 @@
 
   ## Env varijable
 
-  Napravi `.env` fajl (ili postavi na hostu):
+  Napravi `.env` fajl:
   ```
   DISCORD_TOKEN=tvoj_token
   DISCORD_CLIENT_ID=tvoj_client_id
+  DISCORD_GUILD_ID=id_servera   <-- VAŽNO: ovo daje INSTANT komande!
   ```
+
+  ### Kako naći DISCORD_GUILD_ID?
+  Discord → Server Settings → Widget → Server ID
+  Ili desni klik na server (sa Developer Mode uključenim) → Copy Server ID
 
   ## Pokretanje
 
   ```bash
-  # Sa .env fajlom (lokalno)
   node --env-file=.env dist/main.js
-
-  # Ili npm start (podesi env varijable u sistemu/hostu)
-  npm start
   ```
 
   ## Komande

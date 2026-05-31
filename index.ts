@@ -238,7 +238,7 @@ async function mafiaEnd(game: MGame, channel: TextChannel, winner: "mafija" | "g
 
 // ── Main bot ──────────────────────────────────────────────────────────────────
 
-export function startBot(token: string, clientId: string): void {
+export function startBot(token: string, clientId: string, guildId?: string): void {
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -250,7 +250,7 @@ export function startBot(token: string, clientId: string): void {
 
   client.once(Events.ClientReady, async (c) => {
     logger.info({ tag: c.user.tag }, "Discord bot spreman");
-    await registerCommands(token, clientId);
+    await registerCommands(token, clientId, guildId);
   });
 
   // ── Slash commands ────────────────────────────────────────────────────────

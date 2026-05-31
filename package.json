@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/main.js",
-    "dev": "node --loader ts-node/esm --env-file=.env main.ts"
+    "start": "node dist/index.js",
+    "dev": "npx ts-node --esm index.ts"
   },
   "dependencies": {
     "discord.js": "^14.16.3"
